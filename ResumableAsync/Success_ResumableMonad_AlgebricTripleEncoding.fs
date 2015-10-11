@@ -1,53 +1,77 @@
-﻿module MonadicReplayPairHistTree
+﻿module MonadicResultPairHistTree
 
 type Cell<'t> = 
-    | None
-    | Replay of 't
+    | NotExecuted
+    | Result of 't
 
 type Resumable<'h,'t> =
     {
         resume : 'h -> 'h * Cell<'t>
-        zero_previous : 'h
-        zero_last : 't
+        //zero_previous : 'h
+        //zero_last : 't
     }
 
+type FakeUnit = FakeUnit
+
+type X<'t> = 
+    abstract member Zero : unit -> 't
+
+[<StructuredFormatDisplay("ε")>]
+type Epsilon() =
+    interface X<FakeUnit> with
+        member __.Zero () = FakeUnit
+    override __.ToString() = "ε"
+
+[<StructuredFormatDisplay("[ {U}, {A}, {V} ]")>]
 type Triple<'u,'a,'v>(u:'u,a:Cell<'a>,v:'v) =
-    class
-        member x.U = u
-        member x.A = a
-        member x.V = v
-    end
+    member x.U = u
+    member x.A = a
+    member x.V = v
+    override x.ToString() =
+        sprintf "%A %A %O" u a v
+    interface X<'a> with
+        member __.Zero () = Unchecked.defaultof<'a>
+
+// Triple(Epsilon(),Result 5,Epsilon())
 
 type ResumableBuilder() =
-    member b.Zero()                                        = { resume = function () -> (), None
-                                                               zero_previous = ()
-                                                               zero_last = () } 
-    member b.Return(x:'t)                                  = { resume = function () -> (), (Replay x)
-                                                               zero_previous = ()
-                                                               zero_last = Unchecked.defaultof<'t>
-                                                             }
-    member b.Delay(generator:unit->Resumable<'u,'a>)       = { resume = fun x -> let m = generator() in m.resume x
-                                                               zero_previous = 
-                                                               zero_last = Unchecked.defaultof<'a>
-                                                             }
-    member b.ReturnFrom(x)                                 = x
-    member b.Bind (f:Resumable<'u,'a>,  g:'a->Resumable<'v, 'b>)  
+    member b.Zero() =
+        { 
+            resume = fun () -> (), NotExecuted
+            //zero_previous = ()
+            //zero_last = ()
+        } 
+    member b.Return(x:'t) =
+        { 
+            resume = fun () -> (), (Result x)
+            //zero_previous = ()
+            //zero_last = Unchecked.defaultof<'t>
+        }
+    member b.Delay(generator:unit->Resumable<'u,'a>) =
+        { 
+            resume = fun x -> generator().resume x
+            //zero_previous = generator().zero_previous
+            //zero_last = Unchecked.defaultof<'a>
+        }
+    member b.ReturnFrom(x) = x
+    member b.Bind (f:Resumable<'u,'a>,  g:'a->Resumable<'v, 'b>)
                       :  Resumable<Triple<'u, 'a, 'v>, 'b> = 
         { 
-            zero_previous = (g f.zero_last).zero_previous
-            zero_last = (g f.zero_last).zero_last
-            resume = function (X : Triple<'u, 'a, 'v>) ->
-                                match X.A with
-                                | None ->
-                                    // advance f's computation by one step
-                                    let u_stepped, a_stepped = f.resume X.U
-                                    Triple(u_stepped, a_stepped, X.V), None
+            //zero_previous = (g f.zero_last).zero_previous
+            //zero_last = (g f.zero_last).zero_last
+            resume = fun (X : Triple<'u, 'a, 'v>) ->
+                         match X.A with
+                         | NotExecuted ->
+                             // The result of f is misssing, we thus
+                             // advance f's computation by one step
+                             let u_stepped, a_stepped = f.resume X.U
+                             Triple(u_stepped, a_stepped, X.V), NotExecuted
     
-                                | Replay _a ->
-                                    /// f's computation has finished. Advance g's computation by one step
-                                    let b_resumable = g _a
-                                    let v_stepped, b_stepped = b_resumable.resume X.V
-                                    Triple(X.U, X.A, v_stepped), b_stepped
+                         | Result _a ->
+                             /// f's computation has finished. Advance g's computation by one step
+                             let b_resumable = g _a
+                             let v_stepped, b_stepped = b_resumable.resume X.V
+                             Triple(X.U, X.A, v_stepped), b_stepped
         }
 
 let resumable = new ResumableBuilder()
@@ -63,11 +87,10 @@ let _randomNumber label =
     x2
 
 
-module Resumable =
-    let execute (r:Resumable<'h,'b>) a = r.resume a
 
-    let z<'a,'v> (r:'v) = Triple((),(None:Cell<'a>),r)
-    let z0<'a> = z<'a,unit> ()
+let execute (r:Resumable<'h,'b>) a = r.resume a
+let z<'a,'v> (r:'v) = Triple((),(NotExecuted:Cell<'a>),r)
+let z0<'a> = z<'a,unit> ()
 
     //let rec zz = function 
     //             | 1 -> z () ()
@@ -88,20 +111,20 @@ module Resumable =
 //    static member inline zero2() = 
 //        Triple((), None, Zero2<'a>.zero2())
 //
-open Resumable
 
 let m =
     resumable {
-        printfn "hello"
-        // do! resumable { printfn "hello2" } // BUGGY. not supported yet
+        // NOTE: do! is not supported yet sow we use let! _ = instead
+        let! _ = resumable { printfn "hello2"
+                             return () }
         let! x = resumable { return _askString "a" }
+        let w = x + "test"
         let! y = resumable { return _randomNumber "b" }
-        return x, y
+        let! z = resumable { return _randomNumber "c" }
+        return x,y, z, w
     }
 
-
-let s2,t2 = execute m (() |> z |> z)
-//let s2,t2 = execute m (z <| z() <| z0)
+let s2,t2 = execute m (z << z << z << z <| ())
 let s3,_ = execute m s2
 let s4,_ = execute m s3
 let s5,_ = execute m s4

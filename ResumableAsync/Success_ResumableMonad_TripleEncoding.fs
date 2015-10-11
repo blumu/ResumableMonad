@@ -1,75 +1,48 @@
-﻿/// Encode history using standard F# triples (u,a,v) of type 'u * 'a *'v
+﻿/// Copyright William Blum - October 2015
 ///
-/// Failed because: does not properly resume where it left off!!
-/// because binding function keeps executing g on every call!
+/// Working version of resumable monad
+/// Encodes history using F# triples (u,a,v) of type 'u * 'a *'v
 module ResumableMonad.PairEncoding
 
 /// A cell will store the result of a previous execution
 /// of an expression of type 't.
 type Cell<'t> = 
-    | None
-    | Replay of 't
-
+    | NotExecuted
+    | Result of 't
 
 /// This is our resumable data type returned by the monadic expressions
 /// we are about to define
-type Resumable<'h,'t> =
-    {
-        resume : 'h * Cell<'t> -> 'h * Cell<'t>
-    }
-
-(**
-
-Here comes the meat: the definition of the monadic operators.
-
-*)
+type Resumable<'h,'t> = 'h -> 'h * Cell<'t>
 
 type ResumableBuilder() =
     member b.Zero() =
-        { 
-            resume = function (), _ -> (), None
-        } 
-
-    member b.Return(x) =
-        {
-            resume = fun h -> (), (Replay x)
-        }
-
-    member b.ReturnFrom(x) = x
-
+        fun () -> (), NotExecuted
+    member b.Return(x:'t) =
+        fun () -> (), (Result x)
+    member b.ReturnFrom(x) =
+        x
     member b.Delay(generator:unit->Resumable<'u,'a>) =
-        { 
-            resume = fun x -> let m = generator() in m.resume x
-        }
+        fun h -> generator() h
     
-    member b.Bind(  f:Resumable<'u,'a>, 
+    member b.Bind(
+                    f:Resumable<'u,'a>, 
                     g:'a->Resumable<'v, 'b>
-           ) : Resumable<'u * Cell<'a> * 'v, 'b> = 
-        { 
-            resume = function 
-                ((u: 'u, a : Cell<'a>, v : 'v), b : Cell<'b>) as X ->
-                match b with
-                | Replay _b ->
-                    // Computation finished: state unmodified
-                    X 
-                            
-                | None ->
-                    // The result of g is missing. We thus 
-                    // need to advance the computation by one step
-                    match a with
-                    | None -> 
-                        // The result of f is misssing, we thus
-                        // advance f's computation by one step
-                        let u_stepped, a_stepped = f.resume (u, None)
-                        (u_stepped, a_stepped, v), None
+           ) 
+           : Resumable<'u * Cell<'a> * 'v, 'b> = 
+        
+        fun (u: 'u, a : Cell<'a>, v : 'v) ->
+            match a with
+            | NotExecuted -> 
+                // The result of f is misssing, we thus
+                // advance f's computation by one step
+                let u_stepped, a_stepped = f u
+                (u_stepped, a_stepped, v), NotExecuted
     
-                    | Replay _a ->
-                        // Since f's computation has finished
-                        // we advance g's computation by one step.
-                        let b_resumable = g _a
-                        let v_stepped, b_stepped = b_resumable.resume (v, None)
-                        (u, a, v_stepped), b_stepped
-        }
+            | Result _a ->
+                // Since f's computation has finished
+                // we advance g's computation by one step.
+                let v_stepped, b_stepped = (g _a) v
+                (u, a, v_stepped), b_stepped
 
 
 let resumable = new ResumableBuilder()
@@ -86,8 +59,9 @@ let _f2 label =
 
 let m =
     resumable {
+        // NOTE: do! is not supported yet sow we use let! _ = instead
         let! _ = resumable { printfn "hello2"
-                             return () } // BUGGY. not supported yet
+                             return () }
         let! x = resumable { return _f1 "a" }
         let w = x + "test"
         let! y = resumable { return _f2 "b" }
@@ -96,20 +70,22 @@ let m =
     }
 
 
-module Resumable =
-    let execute (r:Resumable<'h,'b>) a = r.resume a
+let execute (r:Resumable<'h,'b>) a = r a
+let z<'a,'v> (r:'v) = ((),(NotExecuted:Cell<'a>),r)
+let z0<'a> = z<'a,unit> ()
 
-    let z<'a,'v> (r:'v) = ((),(None:Cell<'a>),r)
-    let z0<'a> = z<'a,unit> ()
+/// Initial state explicitly typed
+let s0_explicit = z<unit,_> << z<string,_> << z<int,_> << z<int,_> <| ()
+/// Simpler equivalent definition of initial state
+let s0_implicit = z << z << z << z <| ()
+let s1,_ = execute m s0_implicit
+let s2,_ = execute m s1 
+let s3,_ = execute m s2
+let s4,_ = execute m s3
+let s5,_ = execute m s4
 
-open Resumable
 
-let s2 = execute m (() |> z |> z|> z |> z, None)
-let s3 = execute m s2
-let s4 = execute m s3
-let s5 = execute m s4
-
-
+/// Another example
 let m2 =
     resumable {
         let! x = resumable { return _f1 "a" }
