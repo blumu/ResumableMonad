@@ -1,0 +1,11 @@
+obj/
+*.pch
+*.user
+*.ncb
+*.suo
+*.bak
+*.ilk
+*.log
+[Bb]in
+output/
+packages/
