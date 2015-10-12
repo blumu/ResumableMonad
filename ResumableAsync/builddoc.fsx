@@ -18,7 +18,6 @@ let doc() =
     let projInfo =
       [ "page-description", "Resumable monad with F#"
         "page-author", "William Blum"
-        "github-link", "https://"
         "project-name", "Resumable Monad" ]
 
     // Process all files and save results to 'output' directory

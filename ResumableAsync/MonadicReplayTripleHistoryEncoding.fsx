@@ -1,11 +1,17 @@
-﻿module MonadicReplayPairHist
-
-(**
-Resumable monad
-===============
+﻿(**
+Resumable monad, idempotence and Azure
+======================================
 
 This article documents my first successfull attempt at implementing a resumable
 monad in F#.
+
+__Goal__ Define a new monadic syntax to express computation that can be interrupted
+at certain specified points and be resumed at a later point from the state 
+where the computation left off.
+
+__Applications__ Resumable expresssion makes it simpler to write resumable and idempotent code.
+This can be tremendously useful to developers writing on-line services such as Azure worker roles or micro services.
+
 
 __Drawback__ The type used to encode the
 state is automatically inferred by the monadic
@@ -20,19 +26,131 @@ the initial state value.
 
 *)
 
+
+(**
+## Motivating example:
+
+Suppose that we are building a service that creates virtual machines.
+The first step is to obtain the name of the machine to be created.
+The second step is to send an asynchronous VM provisioning request to some external cloud provider (e.g., Azure).
+The external provider returns a request ID used to check status of the
+request. The final step is to poll the request ID until the request succeeds
+or fails (e.g., virtual machine is provisioned or an error occured).
+
+Let's first define helper functions to model this environment.
+
+First we need a function called by our service to
+retrieve the details of the request (such as machine name, type of the machine, ...)
+For simplicity here we will assume it's just a machine name.
+*)
+
+module Environment =
+    let getMachineName () = 
+        printfn "Enter name of machine: "
+        let machineName = System.Console.ReadLine()
+        machineName
+
+(**
+Now let's define a simple model of the Azure VM provisioning API.
+The function justs acts as a mockup for the real Azure VM API. Here we just return
+a random number representing the request ID created on the Azure side.
+*)
+    let provisionVMOnAzure machineName =
+        let requestId = System.Random().Next()
+        printfn "Provisioning new VM %s on Azure...." machineName
+        printfn "Request ID returned from Azure is: %d" requestId
+        requestId
+
+(**
+    Last we model the Azure API that checks the status of a VM deployment.
+    To simulate the processing time normally required for such operation to complete 
+    we count how many times the function was calle and after 5 attempts we return 'success'.
+*)
+    let azureRequestSucceeded =
+        let waitTime = ref 0
+        let rec aux requestId = 
+            printfn "checking status of request %d" requestId
+            waitTime := (!waitTime + 1) % 5
+            !waitTime = 0
+        aux
+
+(**
+Now that our environment is defined we can implement our service operation 
+operationally as follows. 
+*)
+
+module MyService =
+    let myOperation () =
+        let machineName = Environment.getMachineName ()
+    
+        let requestId = Environment.provisionVMOnAzure machineName
+
+        while not <| Environment.azureRequestSucceeded requestId  do
+            printfn "Waiting for Azure request to complete..."
+            System.Threading.Thread.Sleep(1000)
+
+        printfn "Request completed for machine %s!" machineName
+        machineName, requestId
+
+(**
+The logic is straightforward: we get the machine name from the client who made the request, we then forward
+the request to Azure and then poll until the Azure request completes.
+*)
+
+(**
+This works very well except that because our service runs as a worker role in Azure it can be interrupted 
+at any moment. For instance the machine can be restarted, upgarded, or the service rescaled,...
+Consequently the operation above could be interrupted at any point. In particular suppose it is stopped
+right after the request to provision a VM is sent to Azure. What happens next? Typically 
+the cloud infrastructure our service runs on will notice that the request was not completed and will
+repost the request once again.
+At some point this new request will be picked up by another instance of our service worker role.
+When this happens we want the operation to resume where it left off instead of restarting from scratch.
+This is important to prevent having two virtual machines deployed in Azure instead of one!
+
+So what we want is the ability to define resume point in our computation. One each time an important 
+unit of work is completed. Those resume point implicitely define a state that needs to be saved somewhere
+(for instance on an Azure queue) so that when the function `myOperatrion` is called again it can read the state
+and starts where it left off. 
+
+Such code transformation can be done manually but it's a tedious error-prone task: it basically boils down to converting
+your code into a state machine. This requires you to identify the resumable points in your code,
+identify the intermediate states at each resumable points, and implement some 
+state serialization/deserialization logic.
+
+What if all this boiler plate code could be generated automatically?
+What if we could just implement our service operation with almost identical code as above
+and have the state machine logic generated for us?
+
+Here is how we would like to write it:
+*)
+(*** include:myResumableOperation ***)
+
+
+(**
+# Resumable computational expression
+
+We first need to define a type to encode the state. The state consists of the trace
+of all results returned at each resumable point in the computation.
+
+
+*)
+
 /// A cell will store the result of a previous execution
 /// of an expression of type 't.
 type Cell<'t> = 
-    | None
-    | Replay of 't
+    | NotExecuted
+    | Result of 't
 
+
+(* 
+
+
+*)
 
 /// This is our resumable data type returned by the monadic expressions
 /// we are about to define
-type Resumable<'h,'t> =
-    {
-        resume : 'h * Cell<'t> -> 'h * Cell<'t>
-    }
+type Resumable<'h,'t> = 'h -> 'h * Cell<'t>
 
 (**
 
@@ -40,47 +158,51 @@ Here comes the meat: the definition of the monadic operators.
 *)
 
 type ResumableBuilder() =
-    member b.Zero() =
-        { 
-            resume = function (), _ -> (), None
-        } 
-    member b.Return(x) =
-        {
-            resume = fun h -> (), (Replay x)
-        }
-
-    member b.ReturnFrom(x) = x
-
-    member b.Bind(  f:Resumable<'u,'a>, 
-                    g:'a->Resumable<'v, 'b>
-           ) : Resumable<'u * Cell<'a> * 'v, 'b> = 
-        { 
-            resume = function 
-                ((u: 'u, a : Cell<'a>, v : 'v), b : Cell<'b>) as X ->
-                match b with
-                | Replay _b ->
-                    // Computation finished: state unmodified
-                    X 
-                            
-                | None ->
-                    // The result of g is missing. We thus 
-                    // need to advance the computation by one step
-                    match a with
-                    | None -> 
-                        // The result of f is misssing, we thus
-                        // advance f's computation by one step
-                        let u_stepped, a_stepped = f.resume (u, None)
-                        (u_stepped, a_stepped, v), None
+    member __.Zero() =
+        fun () -> (), NotExecuted
+    member __.Return(x:'t) =
+        fun () -> (), (Result x)
+    member __.ReturnFrom(x) =
+        x
+    member __.Delay(generator:unit->Resumable<'u,'a>) =
+        fun h -> generator() h
     
-                    | Replay _a ->
-                        // Since f's computation has finished
-                        // we advance g's computation by one step.
-                        let b_resumable = g _a
-                        let v_stepped, b_stepped = b_resumable.resume (v, None)
-                        (u, a, v_stepped), b_stepped
-        }
+    member __.Bind(
+                  f:Resumable<'u,'a>, 
+                  g:'a->Resumable<'v, 'b>
+           ) 
+           : Resumable<'u * Cell<'a> * 'v, 'b> = 
+        
+        fun (u: 'u, a : Cell<'a>, v : 'v) ->
+            match a with
+            | NotExecuted -> 
+                // The result of f is misssing, we thus
+                // advance f's computation by one step
+                let u_stepped, a_stepped = f u
+                (u_stepped, a_stepped, v), NotExecuted
+    
+            | Result _a ->
+                // Since f's computation has finished
+                // we advance g's computation by one step.
+                let v_stepped, b_stepped = g _a v
+                (u, a, v_stepped), b_stepped
+
+    member __.Combine(p1:Resumable<'u,unit>,p2:Resumable<'v,'b>) :Resumable<'u*Cell<unit>*'v,'b>=
+        __.Bind(p1, (fun () -> p2))
+
+//    member __.While(gd, prog:Resumable<'u,unit>) : Resumable<'u,unit> =
+//        let rec whileA gd prog =
+//            if gd() then 
+//                __.Bind(prog, (fun () -> whileA gd prog))
+//                //__.Zero()
+//            else 
+//                __.Zero()
+//                //fun (u: 'u) -> u, (Result ())
+//   
+//        whileA gd prog
 
 (**
+
 The main trick in the above definition is the triple decomposition of the form `(u,a,v)`
 to represent the history of resumable steps.
 
@@ -98,131 +220,46 @@ last operation to execute. Unfortunately it did not seem possible
 to define _composable_ monadic operators with such encodings. There are also alternative encodings based on the `obj' type and the use of .Net reflexion
 if you are ready to give up on strong typing (which I am not).
 
-The other important point is the definition of the "
+The other important point is the definition of the 
+
 *)
 
 let resumable = new ResumableBuilder()
-
 
 (**
 That's it! We have just defined a new kind of ''resumable'' expressions.
 Let's try to make use of it on a case study.
 
-## Case Study
-
-Suppose that we are building a service that creates virtual machines.
-The first step is to obtain the name of the machine to be created.
-The second step is to send an asynchronous request to some cloud provider (e.g., Azure)
-to provision a VM, this returns a request ID that can be used to check status of the
-request. The final step is to poll the request ID until the request succeeds
-or fails (virtual machine is provisioned or an error occured in the service).
- 
-Let's define helper functions to simulate the environment 
-with which our service is interacting.
-
-First we need a function called by our service to
-retrieve the details of the request (such as machine name, type of the machine, ...)
-For simplicity here we will assume it's just a machine name.
 *)
 
-let getMachineName () = 
-    printfn "Enter name of machine: "
-    let machineName = System.Console.ReadLine()
-    machineName
-
-(**
-Now let's simulate the Azure VM provisioning API.
-This is just implemented as a mockup returning a random number representing the 
- Azure request ID.
-*)
-let provisionVMOnAzure machineName =
-    let requestId = System.Random().Next()
-    printfn "Provisioning new VM %s on Azure...." machineName
-    printfn "Request ID returned from Azure is: %d" requestId
-    requestId
-
-(**
-    Now let's write a mockup for the Azure API that check the status of a VM deployment.
-    To simulate the long time taken for such operation we just use a variable counting 
-    how many time the fnuction was called, after 5 attempts we return success.
-*)
-let azureRequestSucceeded =
-    let waitTime = ref 0
-    let rec aux requestId = 
-        printfn "checking status of request %d" requestId
-        waitTime := (!waitTime + 1) % 5
-        !waitTime = 0
-    aux
-
-(**
-Our service operation could then be implemented operationally as follows
-*)
-let myService () =
-    let machineName = getMachineName ()
+(*** define:myResumableOperation  ***)
+let myResumableOperation =
+    resumable {
+        let! machineName = resumable { return Environment.getMachineName () }
     
-    let requestId = provisionVMOnAzure machineName
+        let! requestId = resumable { return Environment.provisionVMOnAzure machineName }
 
-    while not <| azureRequestSucceeded requestId  do
-        printfn "Waiting for Azure request to complete..."
-        System.Threading.Sleep(100)
+        //while not <| Environment.azureRequestSucceeded requestId do
+        //    printfn "Waiting for Azure request to complete..."
+        //    System.Threading.Thread.Sleep(1000)
+        
+        if true then
+            ()
+        else
+            ()
 
-    printfn "Request completed for machine %s!" machineName
-    return machineName, requestId
-
-(**
-The challenge is that our service runs as a worker role that can be interrupted at any moment.
-In particular it could be interrupted right after the request to provision a VM was sent to Azure.
-When a new instance of the service resumes it needs to resume where it left off instead of just 
-naively restarting from scratch. Otherwise you end up having two virtual machines deployed in Azure.
-*)
+        printfn "Request completed for machine %s!" machineName
+        return machineName, requestId
+    }
 
 (** 
-Now our service can be defined as follows
+
 *)
-let service =
-    resumable {
-        do! resumable { return () }
-        let! x = resumable { return _f1 "a" }
-        let! y = resumable { return _f2 "b" }
-        return y
-    }
 
-let execute (r:Resumable<'h,'b>) a = r.resume a
-let s2 = execute m (((),None,((),None,((),None,()))), None)
-let s3 = execute m s2
-let s4 = execute m s3
+let z<'a,'v> (r:'v) = ((),(NotExecuted:Cell<'a>),r)
 
-
-let m2 =
-    resumable {
-        let! x = resumable { return _f1 "a" }
-        return! resumable { return _f2 "b" }
-    }
-
-
-
-
-let waitForRequestToComplete = async {
-        printfn "waiting for operation to complete"
-        do! Async.Sleep(10)
-    }
-
-let myResumableWorfklow machineName =
-    resumable {
-        
-        let x = 5
-
-        let! request = provisionvm machineName |> makeResumable
-
-        do! waitforRequestToComplete request |> makeResumable
-
-        printfn "VM provisioning completed"
-
-        do! deleteVM |> makeResumable
-
-        printfn "VM deletion completed"
-
-    }
-
-let x = resumeAsAsync <| myResumableWorfklow "machine"
-let y = resumeAsAsync <| myResumableWorfklow "machine"
+let s1,_ = myResumableOperation (z << z << z <| ())
+let s2,_ = myResumableOperation s1 
+let s3,_ = myResumableOperation s2
+let s4,_ = myResumableOperation s3
+let s5,_ = myResumableOperation s4

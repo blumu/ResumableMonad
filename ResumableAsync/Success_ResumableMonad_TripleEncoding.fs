@@ -41,7 +41,7 @@ type ResumableBuilder() =
             | Result _a ->
                 // Since f's computation has finished
                 // we advance g's computation by one step.
-                let v_stepped, b_stepped = (g _a) v
+                let v_stepped, b_stepped = g _a v
                 (u, a, v_stepped), b_stepped
 
 

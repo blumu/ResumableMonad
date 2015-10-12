@@ -1,11 +1,5 @@
 ﻿module MonadicResultPairHistTree
 
-[<StructuredFormatDisplay("ε")>]
-type Epsilon() =
-    override __.ToString() = "ε"
-
-let epsilon = Epsilon()
-
 type Cell<'t> = 
     | NotExecuted
     | Result of 't
@@ -18,20 +12,24 @@ type Triple<'u,'a,'v> =
         v:'v
     }
 
+[<StructuredFormatDisplay("ε")>]
+type Epsilon = Epsilon
+    with override __.ToString() = "ε"
+
 type Resumable<'h,'t> = 'h -> 'h * Cell<'t>
 
 type ResumableBuilder() =
     member b.Zero() = 
-        fun _ -> epsilon, NotExecuted
+        fun _ -> Epsilon, NotExecuted
 
     member b.Return(x:'t) =
-        fun _ -> epsilon, (Result x)
-
-    member b.Delay(generator:unit->Resumable<'u,'a>) =
-        fun x -> generator() x
+        fun _ -> Epsilon, (Result x)
 
     member b.ReturnFrom(x) =
         x
+
+    member b.Delay(generator:unit->Resumable<'u,'a>) =
+        fun h -> generator() h
 
     member b.Bind<'u,'a,'v,'b> 
                 (
@@ -61,7 +59,7 @@ open Microsoft.FSharp.Reflection
  
 let rec getZeroUntyped<'X> (_type:System.Type) =
     if _type = typeof<Epsilon> then
-        box epsilon
+        box Epsilon
     elif _type.IsGenericType && _type.GetGenericTypeDefinition() = typedefof<Cell<_>> then
         FSharpValue.MakeUnion (FSharpType.GetUnionCases(_type).[0], [||])
     elif _type.IsGenericType && _type.GetGenericTypeDefinition() = typedefof<Triple<_,_,_>> then
@@ -118,13 +116,15 @@ let m =
     }
 
 let execute (r:Resumable<'h,'b>) a = r a
-let r<'a,'v> (r:'v) = { Triple.u = epsilon; a = (NotExecuted:Cell<'a>); v = r} 
+let r<'a,'v> (r:'v) = { Triple.u = Epsilon; a = (NotExecuted:Cell<'a>); v = r} 
 let c<'a> () = (NotExecuted:Cell<'a>)
 
-//let s2,t2 = execute m (r << r << r << r <| epsilon)
+let s2_a,t2_a = execute m (r << r << r << r <| Epsilon)
+let s2_b,t2_b = execute m (getZeroTyped<_>)
+s2_a = s2_b
+t2_a = t2_b
 
-let s2,t2 = execute m (getZeroTyped<_>)
-let s3,_ = execute m s2
+let s3,_ = execute m s2_b
 let s4,_ = execute m s3
 let s5,_ = execute m s4
 let s6,rr = execute m s5
