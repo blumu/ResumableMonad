@@ -237,12 +237,13 @@ let myResumableOperation =
     
         let! requestId = resumable { return Environment.provisionVMOnAzure machineName }
 
-        let! status = resumable { 
+        let! vmready = resumable { 
             printfn "Start polling!"
             while not <| Environment.azureRequestSucceeded requestId do
                 printfn "Waiting for Azure request to complete..."
                 System.Threading.Thread.Sleep(1000)
             printfn "VM ready!!"
+            return true
         }
 
         printfn "Request completed for machine %s!" machineName
@@ -255,7 +256,41 @@ let myResumableOperation =
 
 let z<'a,'v> (r:'v) = ((),(NotExecuted:Cell<'a>),r)
 
-let s1,_ = myResumableOperation (z << z << z <| ())
+// let s1,_ = myResumableOperation (z << z << z << z <| ())
+// let s2,_ = myResumableOperation s1 
+// let s3,_ = myResumableOperation s2
+// let s4,_ = myResumableOperation s3
+// let s5,_ = myResumableOperation s4
+
+/////////////
+/// Terminal element
+open Microsoft.FSharp.Reflection
+let rec getZeroUntyped<'X> (_type:System.Type) =
+    if _type = typeof<unit> then
+        box ()
+    elif _type.IsGenericType && _type.GetGenericTypeDefinition() = typedefof<Cell<_>> then
+        FSharpValue.MakeUnion (FSharpType.GetUnionCases(_type).[0], [||])
+    elif _type.IsGenericType && _type.GetGenericTypeDefinition() = typedefof< _*_*_ > then
+        FSharpValue.MakeTuple (_type.GenericTypeArguments |> Array.map getZeroUntyped, _type)
+    else
+        invalidArg "_type" "The provided type is not of valid form. The zero element can only be calculated for trace types (those are types used to encode the state of a resumable computation.)"
+
+let getZeroTyped<'X> =
+    typeof<'X>
+    |> getZeroUntyped
+    |> unbox<'X>
+
+getZeroTyped<unit>
+getZeroTyped<Cell<string> >
+getZeroUntyped typeof<unit * Cell<string> * unit> 
+
+let y =typeof<unit * Cell<string> * unit> 
+getZeroUntyped y.GenericTypeArguments.[1]
+
+getZeroTyped<unit * Cell<string> * (unit * Cell<int> * ((unit * Cell<unit> * unit) * Cell<bool> * unit))>
+//////////////////
+
+let s1,_ = myResumableOperation (getZeroTyped<_>)
 let s2,_ = myResumableOperation s1 
 let s3,_ = myResumableOperation s2
 let s4,_ = myResumableOperation s3

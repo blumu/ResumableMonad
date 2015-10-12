@@ -54,18 +54,17 @@
   </Choose>
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
-    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Failed_ResumableMonad_CommutabeTripleEncoding.fs" />
     <Compile Include="Failed_ResumableMonad_FuncEncoding.fs" />
+    <Compile Include="Failed_PairDefault.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <Compile Include="ReplayMonad.fs" />
-    <Compile Include="PairDefault.fs" />
-    <Compile Include="Success_ResumableMonad_AlgebricTripleEncoding.fs" />
     <Content Include="packages.config" />
     <None Include="builddoc.fsx" />
     <None Include="MonadicReplayTripleHistoryEncoding.fsx" />
     <Compile Include="Success_ResumableMonad_TripleEncoding.fs" />
+    <Compile Include="Success_ResumableMonad_AlgebricEncodingWithZero.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="CSharpFormat">
