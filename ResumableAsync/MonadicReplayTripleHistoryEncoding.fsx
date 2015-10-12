@@ -190,16 +190,14 @@ type ResumableBuilder() =
     member __.Combine(p1:Resumable<'u,unit>,p2:Resumable<'v,'b>) :Resumable<'u*Cell<unit>*'v,'b>=
         __.Bind(p1, (fun () -> p2))
 
-//    member __.While(gd, prog:Resumable<'u,unit>) : Resumable<'u,unit> =
-//        let rec whileA gd prog =
-//            if gd() then 
-//                __.Bind(prog, (fun () -> whileA gd prog))
-//                //__.Zero()
-//            else 
-//                __.Zero()
-//                //fun (u: 'u) -> u, (Result ())
-//   
-//        whileA gd prog
+    member __.While(gd, prog:Resumable<unit,unit>) : Resumable<unit,unit> =
+        let rec whileA gd prog =
+            if not <| gd() then
+                __.Zero()
+            else 
+                fun u -> prog u
+   
+        whileA gd prog
 
 (**
 
@@ -239,14 +237,13 @@ let myResumableOperation =
     
         let! requestId = resumable { return Environment.provisionVMOnAzure machineName }
 
-        //while not <| Environment.azureRequestSucceeded requestId do
-        //    printfn "Waiting for Azure request to complete..."
-        //    System.Threading.Thread.Sleep(1000)
-        
-        if true then
-            ()
-        else
-            ()
+        let! status = resumable { 
+            printfn "Start polling!"
+            while not <| Environment.azureRequestSucceeded requestId do
+                printfn "Waiting for Azure request to complete..."
+                System.Threading.Thread.Sleep(1000)
+            printfn "VM ready!!"
+        }
 
         printfn "Request completed for machine %s!" machineName
         return machineName, requestId
