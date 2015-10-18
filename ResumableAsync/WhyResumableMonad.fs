@@ -1,4 +1,5 @@
-﻿module ReplayMonad
+﻿
+/// One way to introduce motivation for the resumable monad
 
 /////////
 /// We start with a non resumable defintion of the function
