@@ -58,10 +58,10 @@
     <Content Include="packages.config" />
     <Compile Include="Draft_ResumableAsync.fs" />
     <Compile Include="Draft_WhyResumableMonad.fs" />
-    <None Include="builddoc.fsx" />
     <None Include="MonadicReplayTripleHistoryEncoding.fsx" />
     <Compile Include="Success_ResumableMonad_TripleEncoding.fs" />
     <Compile Include="Success_ResumableMonad_AlgebricEncodingWithZero.fs" />
+    <None Include="builddoc.fsx" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="CSharpFormat">
@@ -98,6 +98,10 @@
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core, Version=$(TargetFSharpCoreVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\packages\Newtonsoft.Json.7.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="RazorEngine">

@@ -1,17 +1,18 @@
 ﻿(**
-Resumable monad, idempotence and online services
-================================================
+Resumable monad, idempotence and cloud services
+===============================================
 
 _October 18th, 2015_, **by William Blum**
 
-__Abstract__ We define a new monad and associated F# syntactic sugar ``resumable { ... }``
-to express computations that can be interrupted at specified control points. 
-Such operation can then be resumed in a subsequent execution 
-from the state where it was previously interrupted.
+## Abstract
 
-Resumable expresssion makes it simpler to write idempotent code.
-Such construct helps simplify how developer write code powering up 
-on-line services.
+We define a new monad and its associated F# syntactic sugar ``resumable { ... }``
+to express computations that can be interrupted at specified control points
+and resumed in subsequent executions while carrying along state from 
+the previous execution.
+
+Resumable expresssions make it simpler to write idempotent and resumable code which is often
+necessary when writing cloud services code.
 
 *)
 
@@ -21,28 +22,32 @@ on-line services.
 
 Suppose that we are building a service that creates virtual machines.
 The first step is to obtain the name of the machine to be created.
-The second step is to send an asynchronous VM provisioning request to some external cloud provider (e.g., Amazon, Azure, ...).
+The second step is to defer the actual virtual machine provisioning to 
+an actual cloud provider like Amazon or Azure through 
+an asynchronous API call.
 The external provider returns a request ID used to check status of the
 request. The final step is to poll the request ID until the request succeeds
-or fails (e.g., virtual machine is provisioned or an error occured).
+or fails (e.g., the virtual machine is provisioned or an error occurred).
 
 Let's first define helper functions to model this environment.
+*)
+module Environment =
 
+(**
 First we need a function called by our service to
 retrieve the details of the request (such as machine name, type of the machine, ...)
 For simplicity here we will assume it's just a machine name.
 *)
 
-module Environment =
     let getMachineName () = 
         printfn "Enter name of machine: "
         let machineName = System.Console.ReadLine()
         machineName
 
 (**
-Now let's define a simple model of the IaaS service API used to 
-provision new virtual machines. The function below is just a mockup for the real API, it just returns
-a random number representing the request ID created on the IaaS side.
+Now let's define a simple model of the cloud service API used to 
+provision new virtual machines. The function below is just a mockup for the real API: it returns
+a random number representing the request ID created by the cloud VM provider.
 *)
     let provisionVM machineName =
         let requestId = System.Random().Next()
@@ -51,7 +56,7 @@ a random number representing the request ID created on the IaaS side.
         requestId
 
 (**
-Last we model the IaaS API that checks the status of a VM deployment.
+Last we model the cloud API that checks the status of a previously issued request.
 To simulate the processing time normally required for such operation to complete 
 we count how many times the function was calle and after 5 attempts we return 'success'.
 *)
@@ -88,17 +93,17 @@ the request to the cloud and then poll until the cloud request completes.
 
 (**
 This works very well except that, typically, service running in the cloud (e.g., as a worker role or a micro service)
-can be interrupted at any moment. The machine hosting the service can be restarted, upgarded, or the service rescaled.
+can be interrupted at any moment. The machine hosting the service can be restarted, upgraded, or rescaled.
 In the example above the operation can be interrupted at any point. Suppose for instance that it is stopped
 right after sending the VM provisioning request to the cloud. What happens next? Typically 
 the infrastructure on which we run our service will detect failure to complete the request after a certain timeout 
 and will schedule a new request.
 At some point this new request will be picked up by another instance of our service.
 When this happens we want the operation to resume where it left off instead of restarting from scratch.
-If we don't handle this situation we may end up with an orphan virutal machine and pay for two virtual machines instead of one!
+If we don't handle this situation we may end up with an orphan virtual machine, having to pay for two virtual machines instead of one!
 
-To achived this we need a mechanism to define resumable control points in our implementation. There should be
-one resumable point each time an important unit of work is completed. The set of resumable points implicitely defines 
+To achieve this we need a mechanism to define resumable control points in our implementation. There should be
+one resumable point each time an important unit of work is completed. The set of resumable points implicitly defines 
 a global progress state for our operation. Such state can be saved somewhere (for instance on a cloud blob or queue) so 
 that when our function is called again it can read the state and starts where it left off. 
 
@@ -119,10 +124,9 @@ Here is how we would like to write it:
 (**
 # Resumable computational expression
 
-We need a data type to encode the state of the computation. What is the state? It's the 
+We need a data type to encode the state of the computation. The state will be the 
 sequence of all results returned at each resumable control point in the computation.
-
-We introduce the `Cell<'t>` type to hold the result of type `'t` returned at one individual resumable control point:
+We thus introduce the type `Cell<'t>` to hold the result of type `'t` returned at one individual resumable control point:
 *)
 type Cell<'t> = 
 | NotExecuted
@@ -130,7 +134,7 @@ type Cell<'t> =
 
 (**
 There is one cell for each resumable control point in the computation. Before the corresponding operation is executed
-the cell contains `NotExecuted`, once it has been executed the cell holds the return 
+the cell contains `NotExecuted`, once it has been executed the cell holds the 
 result yielded at the control point.
  
 A resumable control point can then be encoded as a function taking 
@@ -142,7 +146,9 @@ type Resumable<'h,'t> = 'h -> 'h * Cell<'t>
 
 (**
 
-Finally here comes the meat dish: the definition of the monadic operators.
+Finally here comes the meaty part: the definition of the monadic operators.
+My monadic skills being rather rusty it took me a weekend to figure 
+out the implementation details... The result is deceptively simple:
 
 *)
 
@@ -204,11 +210,11 @@ I've tried several other encodings before I came up with this one.
 It may seem more obvious for instance to encode traces with pairs of the form 
 `(prefix,last)` where `prefix` is the list of past executed operations and `last` represents the 
 last operation to execute. Unfortunately defining monadic operators based on such encodings becomes 
-an insurmountable task. The triple decomposition appears necessary to deal with compositionality in the 
+an insurmountable task. The triple decomposition turns out to be necessary to deal with compositionality in the 
 implementation of the `Bind` monadic operator.
 
-> A much better encoding would be to define the trace as an heterogenous list
-> of elements but the fairly limited type system of F# prevents you from doing that. You
+> A much better encoding would be to define the trace as a heterogeneous list
+> of elements but the fairly limited type system provided by F# (compared to Haskell for instance) prevents you from doing that. You
 > would have to give up type safety and define your trace as an array of `obj` and appeal to .Net reflection 
 > to make this all work. Of course I am not willing to give up type safety so I did not even go there...
 
@@ -222,7 +228,7 @@ let resumable = new ResumableBuilder()
 
 
 (** 
-Let's try first with a simple example: a computation that creates the pair `(1,2)` in two resumable steps:
+Let's make use of it on a simple example first: a computation that creates the pair `(1,2)` in two resumable steps:
 
 *)
 
@@ -247,9 +253,9 @@ In order to call this function we need to pass the inital value of the trace as 
 
 (** 
 Each call to `example` advance the computation by one step. The first call produces `1`,
-the second call produces `2` while the last `all returns the expect result of `Result(1,2)`.
+the second call produces `2` while the last call returns the expect result of `Result(1,2)`.
 At each step the current trace state is returned and can be serialized to some external storage.
-If the computer runnig the code fails or restart the state can be deserialized and resumed 
+If the computer running our code fails or restarts the state can be deserialized and resumed 
 where it left off.
 *)
 
@@ -257,7 +263,7 @@ where it left off.
 ## Generating the initial trace state
 
 This works all very well but in practice to actually execute a resumable expression you need
-to construct yourself the initial state (or in monadic parlance the zero value of the type).
+to construct the initial state (or in monadic parlance the zero value of the type) yourself.
 One thing to notice is that the type of the trace is automatically generated by the monadic syntax.
 In the example above it is:
 
@@ -270,12 +276,12 @@ The initial value for this trace type is therefore
     let z0 = ((), NotExecuted, ((), NotExecuted, ()))
 
 (**
-The challenge is that this type gets bigger as the number of resuming point increases
+The challenge is that this type gets bigger as the number of resumable points increases
 in your resumable expression, and so does the F# expression encoding the initial state value.
 The more control points you have in your computation the more complex the overall type gets. 
 
 So we need a better way to generate the initial value of the trace type for larger computations.
-How can we do that? One way is to define a help function with a phantom type `'v':
+How can we do that? One way is to define a helper function with a phantom type `'v`:
 *)
     let z<'a,'v> (r:'v) = ((),(NotExecuted:Cell<'a>),r)
 
@@ -285,7 +291,7 @@ How can we do that? One way is to define a help function with a phantom type `'v
 
 (**
 We can simplify this further: since the value z0 is passed as a parameter to the resumable computation later in the program 
-the type of each cell is automatically inferred therfore we can omit all type parameters:
+the type of each cell is automatically inferred therefore we can omit all type parameters:
 *)
     let z0_c = z<_,_> << z<_,_> <| ()
     example z0_c
@@ -297,16 +303,16 @@ In fact F# let's you just write:
     example z0_d
 
 (** 
-More generally, if your computation as `n` resumable control points the initial trace value is defined as above with instead `n` repetitions of the operator `z'.
+More generally, if your computation as `n` resumable control points the initial trace value is defined as above with instead `n` repetitions of the operator `z`.
 
-OK that's pretty neat but you still need to manually count how many resumable points you have in your computation to generate the
-initial state. Not only that but the trick actually stops working when you have nested resumable expressions!
+OK, that's pretty neat but you still need to manually count how many resumable points you have in your expression
+to be able to automatically generate the initial trace value. Worse: the trick actually stops working when dealing with nested resumable expressions!
 
-## Generating the initial trace value using reflection
+## Generating the initial trace through reflection
 
-I've spent an entire weekend battling with the F# type system to find a type-safe method to define the 
-initial state to no avail. It's once again limitations of the F# type system that makes it impossible to define
-the terminal element of the trace type in a type-safe manner. The core of the issue boils down to the impossiblity of pattern matching
+I've spent another weekend battling with the F# type system 
+looking for a type-safe method to define the initial trace value, to no avail. It's once again limitations of the F# type system that makes it impossible to define
+the terminal element of the trace type in a type-safe manner. The core of the issue boils down to the impossibility of pattern matching
 on types in F#. Instead the solution I came up with involves arcane incantations to the .Net and F# type reflection APIs.
 
 
@@ -378,12 +384,14 @@ module MyResumableService =
             return machineName, requestId, vmready
         }
 
-(** 
-Does this look similar? The actual implementation is almost identical to the original one. We've just 
-sprinkled the resumable keyword in strategic places where we expect the computation to be interrupted.
-If you have played with F# asynchronous workflows before this concept shoudl be very familiar.
+(*** include:myResuambleService ***)
 
-To execute the operation we can just call each individual step as follows:
+(** 
+Does this look familiar? The actual implementation is almost identical to the original non-resumable one. We've just 
+sprinkled the resumable keyword in strategic places where we expect the computation to be interrupted.
+If you have played with F# asynchronous workflows before this concept should be very familiar.
+
+To run the operation we can just execute each individual step as follows:
 *)
 
     let s1,r1 = myServiceApi (Zero.getZeroTyped<_>)   // Get machine name
@@ -394,75 +402,141 @@ To execute the operation we can just call each individual step as follows:
 
 
 (**
-Each call to the API returns a new state holding the current trace of execution.
-Executing each step of the copmutation one at a time is tedious and not very practical. Instead of manually calling
-the function to advance to each step we can use the following helper to run the function continuously through completion:
+Each call returns a new state holding the current trace of execution.
+Executing each step of the computation one at a time is tedious and not very practical. 
+Instead of manually calling
+the function to advance by a single step we can use the following helper to run the entire operation through completion:
 *)
-let run m =
-    let rec aux (state, result) =
-        match result with
-        | NotExecuted -> m state
-        | Result r -> r
+let rec runThroughCompletion m (state, result) =
+    match result with
+    | NotExecuted -> runThroughCompletion m (m state)
+    | Result r -> r
 
-    aux (Zero.getZeroTyped<_>, NotExecuted) 
+let run m =
+    runThroughCompletion m (Zero.getZeroTyped<_>, NotExecuted) 
 
 (** 
 Our service API can then be called in a single command: 
 *)
-run MyService.myServiceApi
+run MyResumableService.myServiceApi
 
 (**
 ## Idempotence
 
-Idempotence means obtaining the same result when executing a given function multiple times. This is a desirable
-feature for service as it guarantees that the service always stays in a well-defined state.
+One important property of ``runThroughCompletion`` is that it is __idempotent__.
+This means that executing it once, twice or more times consecutively yields the exact same result.
+Mathematically this can be expressed as:
 
-The key to achieving idempotence is to define resumable points capturing any effect that the copmutation has on the environment.
-This is precisely what we di in our service API example; each resumable point captures an effect on the environment:
-1. A machine name was requested from the user
-2. A request to provision a VM was issued to an external cloud service
-3. The polling has completed and the cloud service has honour the request
+     runThroughCompletion(runThroughCompletion(x)) = runThroughCompletion(x)
+
+for all state x.
+
+This is a desirable property for services which can be interrupted for various reasons
+like outages, updates, scaling or migrations.
+When such event happens the service typically fails over to a redudant instance of the service that will
+attempt to execute the same operation again. Making the operation idempotent guarantees 
+that the second execution yields a deterministic outcome regardless of whether the first execution completed or not.
+
+## Cancellability and Resumability
+
+Another desirable property is **cancellability**. Meaning that if the system interrupts 
+the operation it should leave itself in a well-defined resumable state. In other words it should be possible
+to interrupt execution of ``runThroughCompletion`` without bringing the system to a corrupt state. 
+
+> **Note** Here I want to highlight an important limitation of the resumable monad: it guarantees cancellability 
+> at resumable points only. If the execution is  interrupted between those resumable points (for instance after 
+> the call to the virtual machine provisioning API but before the call returns with the requestId) then the state 
+> of the system will be undefined!
 
 
-With our current implementation of ``run``, however, the call to ``run MyService.myServiceApi`` is not idempotent: calling it twice 
-will restart the computation form scratch and ask the user for a new machine name each time. 
-The last piece of the puzzle missing to put everything together is *serialization*. Each time we advance the computation we want to 
-serialize the current trace of execution and persist it to some external storage (blob, queue,...).
+To achieve resumability one needs to identify the possible side-effects that the operation has on the environment.
+In our example those side-effects are:
 
-Here is a possible implementation using Json serialization:
+1. A machine name was requested from the user;
+2. A request to provision a VM was issued to an external cloud service;
+3. The polling has completed and the cloud service has honoured the request.
+
+The resumable monad let's you easily capture those side effects and control points using the ``resumable { ... }`` construct.
+
+## Execution engine
+
+The other thing we need is an execution engine that takes advantage of those control points to cancel and resume the computation.
+We can achieve that by adding *persistence* to our implementation of ``run``. Each time we advance the computation to a resumable point we can 
+save the current trace of execution and persist it to external storage (blob, queue,...). Next time we run the operation
+we read the saved state from disk and continue were we left off.
+
+Here is a possible implementation using Json file serialization. (This codes requires the NewtonSoft Json nuget package.):
 
 *)
 
-let runAndPersistProgress m = 
-    let rec aux (state, result) =
+#r @"..\packages\Newtonsoft.Json.7.0.1\lib\net45\Newtonsoft.Json.dll"
+
+let runResumable (p:Resumable<'h,'t>) fileName = 
+    let rec aux (state:'h, result) =
+        System.IO.File.WriteAllText(fileName, Newtonsoft.Json.JsonConvert.SerializeObject(state))
         match result with
-        | NotExecuted -> m state
-        | Result r -> r
+        | NotExecuted -> 
+            aux (p state)
+        | Result r -> (state, result)
 
-    aux (Zero.getZeroTyped<_>, NotExecuted) 
+    let initialState =
+        if System.IO.File.Exists fileName then
+            Newtonsoft.Json.JsonConvert.DeserializeObject<'h>(System.IO.File.ReadAllText(fileName))
+        else
+            Zero.getZeroTyped<_>
+
+    aux (initialState, NotExecuted)
 
 
+(*** hide ***)
+System.IO.File.Delete(@"c:\temp\apiprogress.json")
+
+(**
+Now let's excute the service API and simulate a service interruption using an async timeout:
+*)
+let p = async {
+    return runResumable MyResumableService.myServiceApi @"c:\temp\apiprogress.json"
+}
+let t = Async.RunSynchronously(p, 10)
+
+(**
+This first run prompts you to enter the machine name, it then submits the request to the cloud and
+starts polling for completion before failing due to the forced timeouts of 10ms.
+If you now run the same command once again:
+*)
+let t2 = Async.RunSynchronously(p, 100)
+
+(** Not only you are not prompted a machine name but the machine name and 
+request Id are restored from the previous run 
+and the VM provisioning request completes successfully! *)
+
+(**
+# Conclusion
+
+I hope you enjoyed this article. For the sake of succinctness I am not going to repeat in the conclusion 
+what I already discussed in this article so please refer to the abstract for that :-)
+
+Possible improvements include support for other monadic operators
+(``TryFinally``, ``TryWith``, ``Using``) and integration with the ``async`` monad
+to enable definition of asynchronous resumable computations.
+
+*)
 
 (** 
-This is where enter **idempotence**.
-
 
 # References
 
 There are plenty of references on monads on the internet. You can easily find them with your favourite search engine.
-Check for instance "state monad".
+One related topic in the monadic world is the so-called "state monad".
+Also I am sure somebody else already came up with something similar to the 
+resuamble monad. I did not look in the literature myself, if you have a 
+reference please send it to me through github and I'll add the reference here.
 
 # Thanks 
 
-To Thomas Petricek for his marvelous literrate programming package for F# that was used to typeset this HTML page.
-
-*)
-
-// TODO: serialization, interruption
-
-
 To Tomas Petricek for his marvelous literate programming package for F# that was used to typeset this HTML page.
 
+*)
 
 
 (*** hide ***)
@@ -505,9 +579,3 @@ module IfTest =
     let s3,r3 = iftest s2
     let s4,r4 = iftest s3
     let s5,r5 = iftest s4
-
-(**
-# Further improvements
-
-
-*)

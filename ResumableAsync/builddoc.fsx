@@ -24,5 +24,4 @@ let doc() =
     Literate.ProcessDirectory
       (source, projTemplate, source + "\\..\\output", replacements = projInfo)
 
-
 doc()
