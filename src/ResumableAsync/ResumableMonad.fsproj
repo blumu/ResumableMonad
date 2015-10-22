@@ -12,7 +12,7 @@
     <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <TargetFSharpCoreVersion>4.4.0.0</TargetFSharpCoreVersion>
-    <Name>ResumableAsync</Name>
+    <Name>ResumableMonad</Name>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -58,9 +58,9 @@
     <Content Include="packages.config" />
     <Compile Include="Draft_ResumableAsync.fs" />
     <Compile Include="Draft_WhyResumableMonad.fs" />
-    <None Include="MonadicReplayTripleHistoryEncoding.fsx" />
-    <Compile Include="Success_ResumableMonad_TripleEncoding.fs" />
-    <Compile Include="Success_ResumableMonad_AlgebricEncodingWithZero.fs" />
+    <None Include="ResumableMonadDoc.fsx" />
+    <Compile Include="ResumableMonad_TripleEncoding.fs" />
+    <Compile Include="ResumableMonad_AlgebricEncoding.fs" />
     <None Include="builddoc.fsx" />
   </ItemGroup>
   <ItemGroup>

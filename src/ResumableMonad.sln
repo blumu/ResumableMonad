@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
 VisualStudioVersion = 14.0.23107.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ResumableAsync", "ResumableAsync\ResumableAsync.fsproj", "{EDF09F7D-BF9D-41E6-9B32-D38D296C9627}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ResumableMonad", "ResumableAsync\ResumableMonad.fsproj", "{EDF09F7D-BF9D-41E6-9B32-D38D296C9627}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
