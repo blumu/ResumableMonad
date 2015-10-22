@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <!-- 
+      The Resumable monad, idempotence and cloud services
+ parameters will be replaced with the 
+      document title extracted from the <h1> element or
+      file name, if there is no <h1> heading
+    -->
+    <title>Resumable monad, idempotence and cloud services
+</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Resumable monad with F#">
+    <meta name="author" content="William Blum">
+    <script src="http://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="http://code.jquery.com/ui/1.8.23/jquery-ui.js"></script>
+    <script src="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link href="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet">
+    <link type="text/css" rel="stylesheet" href="content/style.css" />
+    <script src="content/tips.js" type="text/javascript"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="{github-link}">github page</a></li>
+        </ul>
+        <h3 class="muted">Resumable Monad</h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          <h1>Resumable monad, idempotence and cloud services</h1>
+
+<p><em>October 18th, 2015</em>, <strong>by William Blum</strong></p>
+
+<h2>Abstract</h2>
+
+<p>We define a new monad and its associated F# syntactic sugar <code>resumable { ... }</code>
+to express computations that can be interrupted at specified control points
+and resumed in subsequent executions while carrying along state from 
+the previous execution.</p>
+
+<p>Resumable expresssions make it simpler to write idempotent and resumable code which is often
+necessary when writing cloud services code.</p>
+
+<h2>Motivating example</h2>
+
+<p>Suppose that we are building a service that creates virtual machines.
+The first step is to obtain the name of the machine to be created.
+The second step is to defer the actual virtual machine provisioning to 
+an actual cloud provider like Amazon or Azure through 
+an asynchronous API call.
+The external provider returns a request ID used to check status of the
+request. The final step is to poll the request ID until the request succeeds
+or fails (e.g., the virtual machine is provisioned or an error occurred).</p>
+
+<p>Let's first define helper functions to model this environment.</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">module</span> <span class="t">Environment</span> <span class="o">=</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>First we need a function called by our service to
+retrieve the details of the request (such as machine name, type of the machine, ...)
+For simplicity here we will assume it's just a machine name.</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs1', 1)" onmouseover="showTip(event, 'fs1', 1)" class="f">getMachineName</span> () <span class="o">=</span> 
+        <span onmouseout="hideTip(event, 'fs2', 2)" onmouseover="showTip(event, 'fs2', 2)" class="f">printfn</span> <span class="s">&quot;Enter name of machine: &quot;</span>
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs3', 3)" onmouseover="showTip(event, 'fs3', 3)" class="i">machineName</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs4', 4)" onmouseover="showTip(event, 'fs4', 4)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs5', 5)" onmouseover="showTip(event, 'fs5', 5)" class="t">Console</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs6', 6)" onmouseover="showTip(event, 'fs6', 6)" class="f">ReadLine</span>()
+        <span onmouseout="hideTip(event, 'fs3', 7)" onmouseover="showTip(event, 'fs3', 7)" class="i">machineName</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Now let's define a simple model of the cloud service API used to 
+provision new virtual machines. The function below is just a mockup for the real API: it returns
+a random number representing the request ID created by the cloud VM provider.</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs7', 8)" onmouseover="showTip(event, 'fs7', 8)" class="f">provisionVM</span> <span onmouseout="hideTip(event, 'fs3', 9)" onmouseover="showTip(event, 'fs3', 9)" class="i">machineName</span> <span class="o">=</span>
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs8', 10)" onmouseover="showTip(event, 'fs8', 10)" class="i">requestId</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs4', 11)" onmouseover="showTip(event, 'fs4', 11)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs9', 12)" onmouseover="showTip(event, 'fs9', 12)" class="t">Random</span>()<span class="o">.</span><span class="f">Next</span>()
+        <span onmouseout="hideTip(event, 'fs2', 13)" onmouseover="showTip(event, 'fs2', 13)" class="f">printfn</span> <span class="s">&quot;Provisioning new VM </span><span class="pf">%s</span><span class="s"> in the cloud....&quot;</span> <span onmouseout="hideTip(event, 'fs3', 14)" onmouseover="showTip(event, 'fs3', 14)" class="i">machineName</span>
+        <span onmouseout="hideTip(event, 'fs2', 15)" onmouseover="showTip(event, 'fs2', 15)" class="f">printfn</span> <span class="s">&quot;Request ID returned from API is: </span><span class="pf">%d</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs8', 16)" onmouseover="showTip(event, 'fs8', 16)" class="i">requestId</span>
+        <span onmouseout="hideTip(event, 'fs8', 17)" onmouseover="showTip(event, 'fs8', 17)" class="i">requestId</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Last we model the cloud API that checks the status of a previously issued request.
+To simulate the processing time normally required for such operation to complete 
+we count how many times the function was calle and after 5 attempts we return 'success'.</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+<span class="l">7: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs10', 18)" onmouseover="showTip(event, 'fs10', 18)" class="f">vmRequestSucceeded</span> <span class="o">=</span>
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs11', 19)" onmouseover="showTip(event, 'fs11', 19)" class="v">waitTime</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs12', 20)" onmouseover="showTip(event, 'fs12', 20)" class="f">ref</span> <span class="n">0</span>
+        <span class="k">let</span> <span class="k">rec</span> <span onmouseout="hideTip(event, 'fs13', 21)" onmouseover="showTip(event, 'fs13', 21)" class="f">aux</span> <span onmouseout="hideTip(event, 'fs8', 22)" onmouseover="showTip(event, 'fs8', 22)" class="i">requestId</span> <span class="o">=</span> 
+            <span onmouseout="hideTip(event, 'fs2', 23)" onmouseover="showTip(event, 'fs2', 23)" class="f">printfn</span> <span class="s">&quot;checking status of request </span><span class="pf">%d</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs8', 24)" onmouseover="showTip(event, 'fs8', 24)" class="i">requestId</span>
+            <span onmouseout="hideTip(event, 'fs11', 25)" onmouseover="showTip(event, 'fs11', 25)" class="v">waitTime</span> <span class="o">:=</span> (<span class="o">!</span><span onmouseout="hideTip(event, 'fs11', 26)" onmouseover="showTip(event, 'fs11', 26)" class="v">waitTime</span> <span class="o">+</span> <span class="n">1</span>) <span class="o">%</span> <span class="n">5</span>
+            <span class="o">!</span><span onmouseout="hideTip(event, 'fs11', 27)" onmouseover="showTip(event, 'fs11', 27)" class="v">waitTime</span> <span class="o">=</span> <span class="n">0</span>
+        <span onmouseout="hideTip(event, 'fs13', 28)" onmouseover="showTip(event, 'fs13', 28)" class="f">aux</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Now that our environment is defined we can implement our service operation 
+operationally as follows.</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">module</span> <span class="t">MyService</span> <span class="o">=</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs14', 29)" onmouseover="showTip(event, 'fs14', 29)" class="f">myServiceApi</span> () <span class="o">=</span>
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs3', 30)" onmouseover="showTip(event, 'fs3', 30)" class="i">machineName</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs15', 31)" onmouseover="showTip(event, 'fs15', 31)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs1', 32)" onmouseover="showTip(event, 'fs1', 32)" class="f">getMachineName</span> ()
+    
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs8', 33)" onmouseover="showTip(event, 'fs8', 33)" class="i">requestId</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs15', 34)" onmouseover="showTip(event, 'fs15', 34)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs7', 35)" onmouseover="showTip(event, 'fs7', 35)" class="f">provisionVM</span> <span onmouseout="hideTip(event, 'fs3', 36)" onmouseover="showTip(event, 'fs3', 36)" class="i">machineName</span>
+
+        <span class="k">while</span> <span onmouseout="hideTip(event, 'fs16', 37)" onmouseover="showTip(event, 'fs16', 37)" class="f">not</span> <span class="o">&lt;|</span> <span onmouseout="hideTip(event, 'fs15', 38)" onmouseover="showTip(event, 'fs15', 38)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs10', 39)" onmouseover="showTip(event, 'fs10', 39)" class="f">vmRequestSucceeded</span> <span onmouseout="hideTip(event, 'fs8', 40)" onmouseover="showTip(event, 'fs8', 40)" class="i">requestId</span>  <span class="k">do</span>
+            <span onmouseout="hideTip(event, 'fs2', 41)" onmouseover="showTip(event, 'fs2', 41)" class="f">printfn</span> <span class="s">&quot;Waiting for cloud request to complete...&quot;</span>
+            <span onmouseout="hideTip(event, 'fs4', 42)" onmouseover="showTip(event, 'fs4', 42)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs17', 43)" onmouseover="showTip(event, 'fs17', 43)" class="i">Threading</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs18', 44)" onmouseover="showTip(event, 'fs18', 44)" class="t">Thread</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs19', 45)" onmouseover="showTip(event, 'fs19', 45)" class="f">Sleep</span>(<span class="n">1000</span>)
+
+        <span onmouseout="hideTip(event, 'fs2', 46)" onmouseover="showTip(event, 'fs2', 46)" class="f">printfn</span> <span class="s">&quot;Request completed for machine </span><span class="pf">%s</span><span class="s">!&quot;</span> <span onmouseout="hideTip(event, 'fs3', 47)" onmouseover="showTip(event, 'fs3', 47)" class="i">machineName</span>
+        <span onmouseout="hideTip(event, 'fs3', 48)" onmouseover="showTip(event, 'fs3', 48)" class="i">machineName</span>, <span onmouseout="hideTip(event, 'fs8', 49)" onmouseover="showTip(event, 'fs8', 49)" class="i">requestId</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>The logic is straightforward: we get the machine name from the client who made the request, we then forward
+the request to the cloud and then poll until the cloud request completes.</p>
+
+<p>This works very well except that, typically, service running in the cloud (e.g., as a worker role or a micro service)
+can be interrupted at any moment. The machine hosting the service can be restarted, upgraded, or rescaled.
+In the example above the operation can be interrupted at any point. Suppose for instance that it is stopped
+right after sending the VM provisioning request to the cloud. What happens next? Typically 
+the infrastructure on which we run our service will detect failure to complete the request after a certain timeout 
+and will schedule a new request.
+At some point this new request will be picked up by another instance of our service.
+When this happens we want the operation to resume where it left off instead of restarting from scratch.
+If we don't handle this situation we may end up with an orphan virtual machine, having to pay for two virtual machines instead of one!</p>
+
+<p>To achieve this we need a mechanism to define resumable control points in our implementation. There should be
+one resumable point each time an important unit of work is completed. The set of resumable points implicitly defines 
+a global progress state for our operation. Such state can be saved somewhere (for instance on a cloud blob or queue) so 
+that when our function is called again it can read the state and starts where it left off.</p>
+
+<p>Such code transformation can be done manually but it's a tedious error-prone task: it basically boils down to converting
+your code into a state machine. This requires you to first identify the resumable points in your code,
+identify the intermediate states at each resumable points, and implement some 
+state serialization/deserialization logic.</p>
+
+<p>What if all this boiler plate code could be generated automatically?
+What if we could just implement our service operation with almost identical code as above
+and have the state machine logic generated for us?</p>
+
+<p>Here is how we would like to write it:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">module</span> <span class="t">MyResumableService</span> <span class="o">=</span>
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs100', 277)" onmouseover="showTip(event, 'fs100', 277)" class="f">myServiceApi</span> <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs57', 278)" onmouseover="showTip(event, 'fs57', 278)" class="i">resumable</span> {
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs3', 279)" onmouseover="showTip(event, 'fs3', 279)" class="i">machineName</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 280)" onmouseover="showTip(event, 'fs57', 280)" class="i">resumable</span> { <span class="k">return</span> <span onmouseout="hideTip(event, 'fs15', 281)" onmouseover="showTip(event, 'fs15', 281)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs1', 282)" onmouseover="showTip(event, 'fs1', 282)" class="f">getMachineName</span> () }
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs8', 283)" onmouseover="showTip(event, 'fs8', 283)" class="i">requestId</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 284)" onmouseover="showTip(event, 'fs57', 284)" class="i">resumable</span> { <span class="k">return</span> <span onmouseout="hideTip(event, 'fs15', 285)" onmouseover="showTip(event, 'fs15', 285)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs7', 286)" onmouseover="showTip(event, 'fs7', 286)" class="f">provisionVM</span> <span onmouseout="hideTip(event, 'fs3', 287)" onmouseover="showTip(event, 'fs3', 287)" class="i">machineName</span> }
+
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs101', 288)" onmouseover="showTip(event, 'fs101', 288)" class="i">vmready</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 289)" onmouseover="showTip(event, 'fs57', 289)" class="i">resumable</span> { 
+                <span class="k">while</span> <span onmouseout="hideTip(event, 'fs16', 290)" onmouseover="showTip(event, 'fs16', 290)" class="f">not</span> <span class="o">&lt;|</span> <span onmouseout="hideTip(event, 'fs15', 291)" onmouseover="showTip(event, 'fs15', 291)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs10', 292)" onmouseover="showTip(event, 'fs10', 292)" class="f">vmRequestSucceeded</span> <span onmouseout="hideTip(event, 'fs8', 293)" onmouseover="showTip(event, 'fs8', 293)" class="i">requestId</span> <span class="k">do</span>
+                    <span onmouseout="hideTip(event, 'fs2', 294)" onmouseover="showTip(event, 'fs2', 294)" class="f">printfn</span> <span class="s">&quot;Waiting for cloud request to complete...&quot;</span>
+                    <span onmouseout="hideTip(event, 'fs4', 295)" onmouseover="showTip(event, 'fs4', 295)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs17', 296)" onmouseover="showTip(event, 'fs17', 296)" class="i">Threading</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs18', 297)" onmouseover="showTip(event, 'fs18', 297)" class="t">Thread</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs19', 298)" onmouseover="showTip(event, 'fs19', 298)" class="f">Sleep</span>(<span class="n">1000</span>)
+                <span class="k">return</span> <span class="k">true</span>
+            }
+
+            <span onmouseout="hideTip(event, 'fs2', 299)" onmouseover="showTip(event, 'fs2', 299)" class="f">printfn</span> <span class="s">&quot;Request completed for machine </span><span class="pf">%s</span><span class="s">!&quot;</span> <span onmouseout="hideTip(event, 'fs3', 300)" onmouseover="showTip(event, 'fs3', 300)" class="i">machineName</span>
+            <span class="k">return</span> <span onmouseout="hideTip(event, 'fs3', 301)" onmouseover="showTip(event, 'fs3', 301)" class="i">machineName</span>, <span onmouseout="hideTip(event, 'fs8', 302)" onmouseover="showTip(event, 'fs8', 302)" class="i">requestId</span>, <span class="i">vmready</span>
+        }
+</code></pre></td>
+</tr>
+</table>
+
+<h1>Resumable computational expression</h1>
+
+<p>We need a data type to encode the state of the computation. The state will be the 
+sequence of all results returned at each resumable control point in the computation.
+We thus introduce the type <code>Cell&lt;'t&gt;</code> to hold the result of type <code>'t</code> returned at one individual resumable control point:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">type</span> <span onmouseout="hideTip(event, 'fs20', 50)" onmouseover="showTip(event, 'fs20', 50)" class="t">Cell</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span> <span class="o">=</span> 
+| <span onmouseout="hideTip(event, 'fs21', 51)" onmouseover="showTip(event, 'fs21', 51)" class="p">NotExecuted</span>
+| <span onmouseout="hideTip(event, 'fs22', 52)" onmouseover="showTip(event, 'fs22', 52)" class="p">Result</span> <span class="k">of</span> <span class="o">&#39;</span><span class="i">t</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>There is one cell for each resumable control point in the computation. Before the corresponding operation is executed
+the cell contains <code>NotExecuted</code>, once it has been executed the cell holds the 
+result yielded at the control point.</p>
+
+<p>A resumable control point can then be encoded as a function taking 
+the current trace of type <code>'h</code> as parameter and returning the new trace 
+together with the new value produced at this control point:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">type</span> <span onmouseout="hideTip(event, 'fs23', 53)" onmouseover="showTip(event, 'fs23', 53)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span>,<span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span> <span class="o">=</span> <span class="o">&#39;</span><span class="i">h</span> <span class="k">-&gt;</span> <span class="o">&#39;</span><span class="i">h</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 54)" onmouseover="showTip(event, 'fs20', 54)" class="t">Cell</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Finally here comes the meaty part: the definition of the monadic operators.
+My monadic skills being rather rusty it took me a weekend to figure 
+out the implementation details... The result is deceptively simple:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+<span class="l">27: </span>
+<span class="l">28: </span>
+<span class="l">29: </span>
+<span class="l">30: </span>
+<span class="l">31: </span>
+<span class="l">32: </span>
+<span class="l">33: </span>
+<span class="l">34: </span>
+<span class="l">35: </span>
+<span class="l">36: </span>
+<span class="l">37: </span>
+<span class="l">38: </span>
+<span class="l">39: </span>
+<span class="l">40: </span>
+<span class="l">41: </span>
+<span class="l">42: </span>
+<span class="l">43: </span>
+<span class="l">44: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">type</span> <span onmouseout="hideTip(event, 'fs24', 55)" onmouseover="showTip(event, 'fs24', 55)" class="t">ResumableBuilder</span>() <span class="o">=</span>
+    <span class="k">member</span> <span class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs25', 56)" onmouseover="showTip(event, 'fs25', 56)" class="f">Zero</span>() <span class="o">=</span>
+        <span class="k">fun</span> () <span class="k">-&gt;</span> (), (<span onmouseout="hideTip(event, 'fs22', 57)" onmouseover="showTip(event, 'fs22', 57)" class="p">Result</span>())
+    
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs26', 58)" onmouseover="showTip(event, 'fs26', 58)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs27', 59)" onmouseover="showTip(event, 'fs27', 59)" class="f">Return</span>(<span onmouseout="hideTip(event, 'fs28', 60)" onmouseover="showTip(event, 'fs28', 60)" class="i">x</span><span class="o">:</span><span class="o">&#39;</span><span class="i">t</span>) <span class="o">=</span>
+        <span class="k">fun</span> () <span class="k">-&gt;</span> (), (<span onmouseout="hideTip(event, 'fs22', 61)" onmouseover="showTip(event, 'fs22', 61)" class="p">Result</span> <span onmouseout="hideTip(event, 'fs28', 62)" onmouseover="showTip(event, 'fs28', 62)" class="i">x</span>)
+    
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs26', 63)" onmouseover="showTip(event, 'fs26', 63)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs29', 64)" onmouseover="showTip(event, 'fs29', 64)" class="f">ReturnFrom</span>(<span onmouseout="hideTip(event, 'fs30', 65)" onmouseover="showTip(event, 'fs30', 65)" class="i">x</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs30', 66)" onmouseover="showTip(event, 'fs30', 66)" class="i">x</span>
+    
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs26', 67)" onmouseover="showTip(event, 'fs26', 67)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs31', 68)" onmouseover="showTip(event, 'fs31', 68)" class="f">Delay</span>(<span onmouseout="hideTip(event, 'fs32', 69)" onmouseover="showTip(event, 'fs32', 69)" class="f">generator</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs33', 70)" onmouseover="showTip(event, 'fs33', 70)" class="t">unit</span><span class="k">-&gt;</span><span onmouseout="hideTip(event, 'fs23', 71)" onmouseover="showTip(event, 'fs23', 71)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span>,<span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs34', 72)" onmouseover="showTip(event, 'fs34', 72)" class="i">h</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs32', 73)" onmouseover="showTip(event, 'fs32', 73)" class="f">generator</span>() <span onmouseout="hideTip(event, 'fs34', 74)" onmouseover="showTip(event, 'fs34', 74)" class="i">h</span>
+    
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs26', 75)" onmouseover="showTip(event, 'fs26', 75)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs35', 76)" onmouseover="showTip(event, 'fs35', 76)" class="f">Bind</span>(
+                  <span onmouseout="hideTip(event, 'fs36', 77)" onmouseover="showTip(event, 'fs36', 77)" class="i">f</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs23', 78)" onmouseover="showTip(event, 'fs23', 78)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span>,<span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>, 
+                  <span onmouseout="hideTip(event, 'fs37', 79)" onmouseover="showTip(event, 'fs37', 79)" class="f">g</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span><span class="k">-&gt;</span><span onmouseout="hideTip(event, 'fs23', 80)" onmouseover="showTip(event, 'fs23', 80)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">v</span>, <span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>
+           ) 
+           <span class="o">:</span> <span onmouseout="hideTip(event, 'fs23', 81)" onmouseover="showTip(event, 'fs23', 81)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 82)" onmouseover="showTip(event, 'fs20', 82)" class="t">Cell</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span> <span class="o">*</span> <span class="o">&#39;</span><span class="i">v</span>, <span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span> <span class="o">=</span> 
+        
+        <span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs38', 83)" onmouseover="showTip(event, 'fs38', 83)" class="i">u</span><span class="o">:</span> <span class="o">&#39;</span><span class="i">u</span>, <span onmouseout="hideTip(event, 'fs39', 84)" onmouseover="showTip(event, 'fs39', 84)" class="i">a</span> <span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 85)" onmouseover="showTip(event, 'fs20', 85)" class="t">Cell</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs40', 86)" onmouseover="showTip(event, 'fs40', 86)" class="i">v</span> <span class="o">:</span> <span class="o">&#39;</span><span class="i">v</span>) <span class="k">-&gt;</span>
+            <span class="k">match</span> <span onmouseout="hideTip(event, 'fs39', 87)" onmouseover="showTip(event, 'fs39', 87)" class="i">a</span> <span class="k">with</span>
+            | <span onmouseout="hideTip(event, 'fs21', 88)" onmouseover="showTip(event, 'fs21', 88)" class="p">NotExecuted</span> <span class="k">-&gt;</span> 
+                <span class="c">// The result of f is misssing, we thus</span>
+                <span class="c">// advance f&#39;s computation by one step</span>
+                <span class="k">let</span> <span onmouseout="hideTip(event, 'fs41', 89)" onmouseover="showTip(event, 'fs41', 89)" class="i">u_stepped</span>, <span onmouseout="hideTip(event, 'fs42', 90)" onmouseover="showTip(event, 'fs42', 90)" class="i">a_stepped</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs36', 91)" onmouseover="showTip(event, 'fs36', 91)" class="i">f</span> <span onmouseout="hideTip(event, 'fs38', 92)" onmouseover="showTip(event, 'fs38', 92)" class="i">u</span>
+                (<span onmouseout="hideTip(event, 'fs41', 93)" onmouseover="showTip(event, 'fs41', 93)" class="i">u_stepped</span>, <span onmouseout="hideTip(event, 'fs42', 94)" onmouseover="showTip(event, 'fs42', 94)" class="i">a_stepped</span>, <span onmouseout="hideTip(event, 'fs40', 95)" onmouseover="showTip(event, 'fs40', 95)" class="i">v</span>), <span onmouseout="hideTip(event, 'fs21', 96)" onmouseover="showTip(event, 'fs21', 96)" class="p">NotExecuted</span>
+    
+            | <span onmouseout="hideTip(event, 'fs22', 97)" onmouseover="showTip(event, 'fs22', 97)" class="p">Result</span> <span onmouseout="hideTip(event, 'fs43', 98)" onmouseover="showTip(event, 'fs43', 98)" class="i">_a</span> <span class="k">-&gt;</span>
+                <span class="c">// Since f&#39;s computation has finished</span>
+                <span class="c">// we advance g&#39;s computation by one step.</span>
+                <span class="k">let</span> <span onmouseout="hideTip(event, 'fs44', 99)" onmouseover="showTip(event, 'fs44', 99)" class="i">v_stepped</span>, <span onmouseout="hideTip(event, 'fs45', 100)" onmouseover="showTip(event, 'fs45', 100)" class="i">b_stepped</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs37', 101)" onmouseover="showTip(event, 'fs37', 101)" class="f">g</span> <span onmouseout="hideTip(event, 'fs43', 102)" onmouseover="showTip(event, 'fs43', 102)" class="i">_a</span> <span onmouseout="hideTip(event, 'fs40', 103)" onmouseover="showTip(event, 'fs40', 103)" class="i">v</span>
+                (<span onmouseout="hideTip(event, 'fs38', 104)" onmouseover="showTip(event, 'fs38', 104)" class="i">u</span>, <span onmouseout="hideTip(event, 'fs39', 105)" onmouseover="showTip(event, 'fs39', 105)" class="i">a</span>, <span onmouseout="hideTip(event, 'fs44', 106)" onmouseover="showTip(event, 'fs44', 106)" class="i">v_stepped</span>), <span onmouseout="hideTip(event, 'fs45', 107)" onmouseover="showTip(event, 'fs45', 107)" class="i">b_stepped</span>
+
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs26', 108)" onmouseover="showTip(event, 'fs26', 108)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs46', 109)" onmouseover="showTip(event, 'fs46', 109)" class="f">Combine</span>(<span onmouseout="hideTip(event, 'fs47', 110)" onmouseover="showTip(event, 'fs47', 110)" class="i">p1</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs23', 111)" onmouseover="showTip(event, 'fs23', 111)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span>,<span onmouseout="hideTip(event, 'fs33', 112)" onmouseover="showTip(event, 'fs33', 112)" class="t">unit</span><span class="o">&gt;</span>,<span onmouseout="hideTip(event, 'fs48', 113)" onmouseover="showTip(event, 'fs48', 113)" class="i">p2</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs23', 114)" onmouseover="showTip(event, 'fs23', 114)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">v</span>,<span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">:</span><span onmouseout="hideTip(event, 'fs23', 115)" onmouseover="showTip(event, 'fs23', 115)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span><span class="o">*</span><span onmouseout="hideTip(event, 'fs20', 116)" onmouseover="showTip(event, 'fs20', 116)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 117)" onmouseover="showTip(event, 'fs33', 117)" class="t">unit</span><span class="o">&gt;</span><span class="o">*</span><span class="o">&#39;</span><span class="i">v</span>,<span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span><span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs26', 118)" onmouseover="showTip(event, 'fs26', 118)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs49', 119)" onmouseover="showTip(event, 'fs49', 119)" class="f">Bind</span>(<span onmouseout="hideTip(event, 'fs47', 120)" onmouseover="showTip(event, 'fs47', 120)" class="i">p1</span>, (<span class="k">fun</span> () <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs48', 121)" onmouseover="showTip(event, 'fs48', 121)" class="i">p2</span>))
+
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs26', 122)" onmouseover="showTip(event, 'fs26', 122)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs50', 123)" onmouseover="showTip(event, 'fs50', 123)" class="f">While</span>(<span onmouseout="hideTip(event, 'fs51', 124)" onmouseover="showTip(event, 'fs51', 124)" class="f">gd</span>, <span onmouseout="hideTip(event, 'fs52', 125)" onmouseover="showTip(event, 'fs52', 125)" class="i">prog</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs23', 126)" onmouseover="showTip(event, 'fs23', 126)" class="i">Resumable</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 127)" onmouseover="showTip(event, 'fs33', 127)" class="t">unit</span>,<span onmouseout="hideTip(event, 'fs33', 128)" onmouseover="showTip(event, 'fs33', 128)" class="t">unit</span><span class="o">&gt;</span>) <span class="o">:</span> <span onmouseout="hideTip(event, 'fs23', 129)" onmouseover="showTip(event, 'fs23', 129)" class="i">Resumable</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 130)" onmouseover="showTip(event, 'fs33', 130)" class="t">unit</span>,<span onmouseout="hideTip(event, 'fs33', 131)" onmouseover="showTip(event, 'fs33', 131)" class="t">unit</span><span class="o">&gt;</span> <span class="o">=</span>
+        <span class="k">let</span> <span class="k">rec</span> <span onmouseout="hideTip(event, 'fs53', 132)" onmouseover="showTip(event, 'fs53', 132)" class="f">whileA</span> <span onmouseout="hideTip(event, 'fs51', 133)" onmouseover="showTip(event, 'fs51', 133)" class="f">gd</span> <span onmouseout="hideTip(event, 'fs54', 134)" onmouseover="showTip(event, 'fs54', 134)" class="f">prog</span> <span class="o">=</span>
+            <span class="k">if</span> <span onmouseout="hideTip(event, 'fs16', 135)" onmouseover="showTip(event, 'fs16', 135)" class="f">not</span> <span class="o">&lt;|</span> <span onmouseout="hideTip(event, 'fs51', 136)" onmouseover="showTip(event, 'fs51', 136)" class="f">gd</span>() <span class="k">then</span>
+                <span onmouseout="hideTip(event, 'fs26', 137)" onmouseover="showTip(event, 'fs26', 137)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs55', 138)" onmouseover="showTip(event, 'fs55', 138)" class="f">Zero</span>()
+            <span class="k">else</span> 
+                <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs56', 139)" onmouseover="showTip(event, 'fs56', 139)" class="i">u</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs54', 140)" onmouseover="showTip(event, 'fs54', 140)" class="f">prog</span> <span onmouseout="hideTip(event, 'fs56', 141)" onmouseover="showTip(event, 'fs56', 141)" class="i">u</span>
+   
+        <span onmouseout="hideTip(event, 'fs53', 142)" onmouseover="showTip(event, 'fs53', 142)" class="f">whileA</span> <span onmouseout="hideTip(event, 'fs51', 143)" onmouseover="showTip(event, 'fs51', 143)" class="f">gd</span> <span onmouseout="hideTip(event, 'fs54', 144)" onmouseover="showTip(event, 'fs54', 144)" class="i">prog</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>The idea in the above definition is to decompose a trace of execution as a triple of the form <code>(u,a,v)</code>:</p>
+
+<ul>
+<li>The <code>u</code> part represents a prefix of the trace.</li>
+<li>The <code>a</code> part represents the cell in context.</li>
+<li>The <code>v</code> part represents the suffix of the trace, that is the result returned at each 
+resumable control point following the cell in context.</li>
+</ul>
+
+<p>I've tried several other encodings before I came up with this one.
+It may seem more obvious for instance to encode traces with pairs of the form 
+<code>(prefix,last)</code> where <code>prefix</code> is the list of past executed operations and <code>last</code> represents the 
+last operation to execute. Unfortunately defining monadic operators based on such encodings becomes 
+an insurmountable task. The triple decomposition turns out to be necessary to deal with compositionality in the 
+implementation of the <code>Bind</code> monadic operator.</p>
+
+<blockquote>
+  <p>A much better encoding would be to define the trace as a heterogeneous list
+of elements but the fairly limited type system provided by F# (compared to Haskell for instance) prevents you from doing that. You
+would have to give up type safety and define your trace as an array of <code>obj</code> and appeal to .Net reflection 
+to make this all work. Of course I am not willing to give up type safety so I did not even go there...</p>
+</blockquote>
+
+<p>We can now define syntactic sugar in F# for the monadic operators above defined:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs57', 145)" onmouseover="showTip(event, 'fs57', 145)" class="i">resumable</span> <span class="o">=</span> <span class="k">new</span> <span onmouseout="hideTip(event, 'fs24', 146)" onmouseover="showTip(event, 'fs24', 146)" class="t">ResumableBuilder</span>()
+</code></pre></td>
+</tr>
+</table>
+
+<p>Let's make use of it on a simple example first: a computation that creates the pair <code>(1,2)</code> in two resumable steps:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">module</span> <span class="t">Example</span> <span class="o">=</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs58', 147)" onmouseover="showTip(event, 'fs58', 147)" class="f">example</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 148)" onmouseover="showTip(event, 'fs57', 148)" class="i">resumable</span> {
+        <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs59', 149)" onmouseover="showTip(event, 'fs59', 149)" class="i">x</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 150)" onmouseover="showTip(event, 'fs57', 150)" class="i">resumable</span> { <span class="k">return</span> <span class="n">1</span> }
+        <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs60', 151)" onmouseover="showTip(event, 'fs60', 151)" class="i">y</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 152)" onmouseover="showTip(event, 'fs57', 152)" class="i">resumable</span> { <span class="k">return</span> <span class="n">2</span> }
+        <span class="k">return</span> <span onmouseout="hideTip(event, 'fs59', 153)" onmouseover="showTip(event, 'fs59', 153)" class="i">x</span>, <span onmouseout="hideTip(event, 'fs60', 154)" onmouseover="showTip(event, 'fs60', 154)" class="i">y</span>
+    }
+</code></pre></td>
+</tr>
+</table>
+
+<p>The type returned by the <code>resumable</code> construct is a function taking the current state of the 
+trace as a parameter and returns both the new trace and the overall return value.
+In order to call this function we need to pass the inital value of the trace as a parameter
+(we will get back to this later in more details).</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs61', 155)" onmouseover="showTip(event, 'fs61', 155)" class="i">s0</span> <span class="o">=</span> ((), <span onmouseout="hideTip(event, 'fs21', 156)" onmouseover="showTip(event, 'fs21', 156)" class="p">NotExecuted</span>, ((), <span onmouseout="hideTip(event, 'fs21', 157)" onmouseover="showTip(event, 'fs21', 157)" class="p">NotExecuted</span>, ()))
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs62', 158)" onmouseover="showTip(event, 'fs62', 158)" class="i">s1</span>, <span onmouseout="hideTip(event, 'fs63', 159)" onmouseover="showTip(event, 'fs63', 159)" class="i">r1</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs58', 160)" onmouseover="showTip(event, 'fs58', 160)" class="f">example</span> <span onmouseout="hideTip(event, 'fs61', 161)" onmouseover="showTip(event, 'fs61', 161)" class="i">s0</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs64', 162)" onmouseover="showTip(event, 'fs64', 162)" class="i">s2</span>, <span onmouseout="hideTip(event, 'fs65', 163)" onmouseover="showTip(event, 'fs65', 163)" class="i">r2</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs58', 164)" onmouseover="showTip(event, 'fs58', 164)" class="f">example</span> <span onmouseout="hideTip(event, 'fs62', 165)" onmouseover="showTip(event, 'fs62', 165)" class="i">s1</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs66', 166)" onmouseover="showTip(event, 'fs66', 166)" class="i">s3</span>, <span onmouseout="hideTip(event, 'fs67', 167)" onmouseover="showTip(event, 'fs67', 167)" class="i">r3</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs58', 168)" onmouseover="showTip(event, 'fs58', 168)" class="f">example</span> <span onmouseout="hideTip(event, 'fs64', 169)" onmouseover="showTip(event, 'fs64', 169)" class="i">s2</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Each call to <code>example</code> advance the computation by one step. The first call produces <code>1</code>,
+the second call produces <code>2</code> while the last call returns the expect result of <code>Result(1,2)</code>.
+At each step the current trace state is returned and can be serialized to some external storage.
+If the computer running our code fails or restarts the state can be deserialized and resumed 
+where it left off.</p>
+
+<h2>Generating the initial trace state</h2>
+
+<p>This works all very well but in practice to actually execute a resumable expression you need
+to construct the initial state (or in monadic parlance the zero value of the type) yourself.
+One thing to notice is that the type of the trace is automatically generated by the monadic syntax.
+In the example above it is:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">val</span> <span class="i">example</span> <span class="o">:</span>
+      (<span onmouseout="hideTip(event, 'fs33', 170)" onmouseover="showTip(event, 'fs33', 170)" class="i">unit</span> <span class="o">*</span> <span class="i">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 171)" onmouseover="showTip(event, 'fs68', 171)" class="i">int</span><span class="o">&gt;</span> <span class="o">*</span> (<span onmouseout="hideTip(event, 'fs33', 172)" onmouseover="showTip(event, 'fs33', 172)" class="i">unit</span> <span class="o">*</span> <span class="i">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 173)" onmouseover="showTip(event, 'fs68', 173)" class="i">int</span><span class="o">&gt;</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs33', 174)" onmouseover="showTip(event, 'fs33', 174)" class="i">unit</span>) <span class="k">-&gt;</span>
+        (<span onmouseout="hideTip(event, 'fs33', 175)" onmouseover="showTip(event, 'fs33', 175)" class="i">unit</span> <span class="o">*</span> <span class="i">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 176)" onmouseover="showTip(event, 'fs68', 176)" class="i">int</span><span class="o">&gt;</span> <span class="o">*</span> (<span onmouseout="hideTip(event, 'fs33', 177)" onmouseover="showTip(event, 'fs33', 177)" class="i">unit</span> <span class="o">*</span> <span class="i">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 178)" onmouseover="showTip(event, 'fs68', 178)" class="i">int</span><span class="o">&gt;</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs33', 179)" onmouseover="showTip(event, 'fs33', 179)" class="i">unit</span>)) <span class="o">*</span> <span class="i">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 180)" onmouseover="showTip(event, 'fs68', 180)" class="i">int</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs68', 181)" onmouseover="showTip(event, 'fs68', 181)" class="i">int</span><span class="o">&gt;</span>)
+</code></pre></td>
+</tr>
+</table>
+
+<p>The initial value for this trace type is therefore</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs69', 182)" onmouseover="showTip(event, 'fs69', 182)" class="i">z0</span> <span class="o">=</span> ((), <span onmouseout="hideTip(event, 'fs21', 183)" onmouseover="showTip(event, 'fs21', 183)" class="p">NotExecuted</span>, ((), <span onmouseout="hideTip(event, 'fs21', 184)" onmouseover="showTip(event, 'fs21', 184)" class="p">NotExecuted</span>, ()))
+</code></pre></td>
+</tr>
+</table>
+
+<p>The challenge is that this type gets bigger as the number of resumable points increases
+in your resumable expression, and so does the F# expression encoding the initial state value.
+The more control points you have in your computation the more complex the overall type gets.</p>
+
+<p>So we need a better way to generate the initial value of the trace type for larger computations.
+How can we do that? One way is to define a helper function with a phantom type <code>'v</code>:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs70', 185)" onmouseover="showTip(event, 'fs70', 185)" class="f">z</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span>,<span class="o">&#39;</span><span class="i">v</span><span class="o">&gt;</span> (<span onmouseout="hideTip(event, 'fs71', 186)" onmouseover="showTip(event, 'fs71', 186)" class="i">r</span><span class="o">:</span><span class="o">&#39;</span><span class="i">v</span>) <span class="o">=</span> ((),(<span onmouseout="hideTip(event, 'fs21', 187)" onmouseover="showTip(event, 'fs21', 187)" class="p">NotExecuted</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs20', 188)" onmouseover="showTip(event, 'fs20', 188)" class="t">Cell</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>),<span onmouseout="hideTip(event, 'fs71', 189)" onmouseover="showTip(event, 'fs71', 189)" class="i">r</span>)
+</code></pre></td>
+</tr>
+</table>
+
+<p>We can then equivalently define <code>z0</code> as:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs72', 190)" onmouseover="showTip(event, 'fs72', 190)" class="i">z0_b</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs70', 191)" onmouseover="showTip(event, 'fs70', 191)" class="f">z</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 192)" onmouseover="showTip(event, 'fs68', 192)" class="t">int</span>,_<span class="o">&gt;</span> <span class="o">&lt;&lt;</span> <span onmouseout="hideTip(event, 'fs70', 193)" onmouseover="showTip(event, 'fs70', 193)" class="f">z</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 194)" onmouseover="showTip(event, 'fs68', 194)" class="t">int</span>,_<span class="o">&gt;</span> <span class="o">&lt;|</span> ()
+</code></pre></td>
+</tr>
+</table>
+
+<p>We can simplify this further: since the value z0 is passed as a parameter to the resumable computation later in the program 
+the type of each cell is automatically inferred therefore we can omit all type parameters:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs73', 195)" onmouseover="showTip(event, 'fs73', 195)" class="i">z0_c</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs70', 196)" onmouseover="showTip(event, 'fs70', 196)" class="f">z</span><span class="o">&lt;</span>_,_<span class="o">&gt;</span> <span class="o">&lt;&lt;</span> <span onmouseout="hideTip(event, 'fs70', 197)" onmouseover="showTip(event, 'fs70', 197)" class="f">z</span><span class="o">&lt;</span>_,_<span class="o">&gt;</span> <span class="o">&lt;|</span> ()
+    <span onmouseout="hideTip(event, 'fs58', 198)" onmouseover="showTip(event, 'fs58', 198)" class="f">example</span> <span onmouseout="hideTip(event, 'fs73', 199)" onmouseover="showTip(event, 'fs73', 199)" class="i">z0_c</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>In fact F# let's you just write:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs74', 200)" onmouseover="showTip(event, 'fs74', 200)" class="i">z0_d</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs70', 201)" onmouseover="showTip(event, 'fs70', 201)" class="f">z</span> <span class="o">&lt;&lt;</span> <span onmouseout="hideTip(event, 'fs70', 202)" onmouseover="showTip(event, 'fs70', 202)" class="f">z</span> <span class="o">&lt;|</span> ()
+    <span onmouseout="hideTip(event, 'fs58', 203)" onmouseover="showTip(event, 'fs58', 203)" class="f">example</span> <span onmouseout="hideTip(event, 'fs74', 204)" onmouseover="showTip(event, 'fs74', 204)" class="i">z0_d</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>More generally, if your computation as <code>n</code> resumable control points the initial trace value is defined as above with instead <code>n</code> repetitions of the operator <code>z</code>.</p>
+
+<p>OK, that's pretty neat but you still need to manually count how many resumable points you have in your expression
+to be able to automatically generate the initial trace value. Worse: the trick actually stops working when dealing with nested resumable expressions!</p>
+
+<h2>Generating the initial trace through reflection</h2>
+
+<p>I've spent another weekend battling with the F# type system 
+looking for a type-safe method to define the initial trace value, to no avail. It's once again limitations of the F# type system that makes it impossible to define
+the terminal element of the trace type in a type-safe manner. The core of the issue boils down to the impossibility of pattern matching
+on types in F#. Instead the solution I came up with involves arcane incantations to the .Net and F# type reflection APIs.</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">module</span> <span class="t">Zero</span> <span class="o">=</span>
+    <span class="k">open</span> <span onmouseout="hideTip(event, 'fs75', 205)" onmouseover="showTip(event, 'fs75', 205)" class="i">Microsoft</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs76', 206)" onmouseover="showTip(event, 'fs76', 206)" class="i">FSharp</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs77', 207)" onmouseover="showTip(event, 'fs77', 207)" class="i">Reflection</span>
+
+    <span class="k">let</span> <span class="k">rec</span> <span onmouseout="hideTip(event, 'fs78', 208)" onmouseover="showTip(event, 'fs78', 208)" class="f">getZeroUntyped</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">X</span><span class="o">&gt;</span> (<span class="i">_type</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs4', 209)" onmouseover="showTip(event, 'fs4', 209)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs79', 210)" onmouseover="showTip(event, 'fs79', 210)" class="t">Type</span>) <span class="o">=</span>
+        <span class="k">if</span> <span onmouseout="hideTip(event, 'fs80', 211)" onmouseover="showTip(event, 'fs80', 211)" class="i">_type</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs81', 212)" onmouseover="showTip(event, 'fs81', 212)" class="i">typeof</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 213)" onmouseover="showTip(event, 'fs33', 213)" class="t">unit</span><span class="o">&gt;</span> <span class="k">then</span>
+            <span onmouseout="hideTip(event, 'fs82', 214)" onmouseover="showTip(event, 'fs82', 214)" class="f">box</span> ()
+        <span class="k">elif</span> <span onmouseout="hideTip(event, 'fs80', 215)" onmouseover="showTip(event, 'fs80', 215)" class="i">_type</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs83', 216)" onmouseover="showTip(event, 'fs83', 216)" class="i">IsGenericType</span> <span class="o">&amp;&amp;</span> <span onmouseout="hideTip(event, 'fs80', 217)" onmouseover="showTip(event, 'fs80', 217)" class="i">_type</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 218)" onmouseover="showTip(event, 'fs84', 218)" class="f">GetGenericTypeDefinition</span>() <span class="o">=</span> <span onmouseout="hideTip(event, 'fs85', 219)" onmouseover="showTip(event, 'fs85', 219)" class="i">typedefof</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs20', 220)" onmouseover="showTip(event, 'fs20', 220)" class="t">Cell</span><span class="o">&lt;</span>_<span class="o">&gt;</span><span class="o">&gt;</span> <span class="k">then</span>
+            <span onmouseout="hideTip(event, 'fs86', 221)" onmouseover="showTip(event, 'fs86', 221)" class="t">FSharpValue</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs87', 222)" onmouseover="showTip(event, 'fs87', 222)" class="f">MakeUnion</span> (<span onmouseout="hideTip(event, 'fs88', 223)" onmouseover="showTip(event, 'fs88', 223)" class="t">FSharpType</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs89', 224)" onmouseover="showTip(event, 'fs89', 224)" class="f">GetUnionCases</span>(<span onmouseout="hideTip(event, 'fs80', 225)" onmouseover="showTip(event, 'fs80', 225)" class="i">_type</span>)<span class="o">.</span>[<span class="n">0</span>], [||])
+        <span class="k">elif</span> <span onmouseout="hideTip(event, 'fs80', 226)" onmouseover="showTip(event, 'fs80', 226)" class="i">_type</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs83', 227)" onmouseover="showTip(event, 'fs83', 227)" class="i">IsGenericType</span> <span class="o">&amp;&amp;</span> <span onmouseout="hideTip(event, 'fs80', 228)" onmouseover="showTip(event, 'fs80', 228)" class="i">_type</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 229)" onmouseover="showTip(event, 'fs84', 229)" class="f">GetGenericTypeDefinition</span>() <span class="o">=</span> <span onmouseout="hideTip(event, 'fs85', 230)" onmouseover="showTip(event, 'fs85', 230)" class="i">typedefof</span><span class="o">&lt;</span> _<span class="o">*</span>_<span class="o">*</span>_ <span class="o">&gt;</span> <span class="k">then</span>
+            <span onmouseout="hideTip(event, 'fs86', 231)" onmouseover="showTip(event, 'fs86', 231)" class="t">FSharpValue</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs90', 232)" onmouseover="showTip(event, 'fs90', 232)" class="f">MakeTuple</span> (<span onmouseout="hideTip(event, 'fs80', 233)" onmouseover="showTip(event, 'fs80', 233)" class="i">_type</span><span class="o">.</span><span class="i">GenericTypeArguments</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs91', 234)" onmouseover="showTip(event, 'fs91', 234)" class="t">Array</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs92', 235)" onmouseover="showTip(event, 'fs92', 235)" class="f">map</span> <span onmouseout="hideTip(event, 'fs78', 236)" onmouseover="showTip(event, 'fs78', 236)" class="f">getZeroUntyped</span>, <span onmouseout="hideTip(event, 'fs80', 237)" onmouseover="showTip(event, 'fs80', 237)" class="i">_type</span>)
+        <span class="k">else</span>
+            <span onmouseout="hideTip(event, 'fs93', 238)" onmouseover="showTip(event, 'fs93', 238)" class="f">invalidArg</span> <span class="s">&quot;_type&quot;</span> (<span class="s">&quot;The provided type is not of valid form. The zero element can only be &quot;</span> <span class="o">+</span>
+                                <span class="s">&quot;calculated for trace types (those are types used to encode the state &quot;</span> <span class="o">+</span>
+                                <span class="s">&quot;of a resumable computation.)&quot;</span>)
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs94', 239)" onmouseover="showTip(event, 'fs94', 239)" class="i">getZeroTyped</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">X</span><span class="o">&gt;</span> <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs81', 240)" onmouseover="showTip(event, 'fs81', 240)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">X</span><span class="o">&gt;</span>
+        <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs78', 241)" onmouseover="showTip(event, 'fs78', 241)" class="f">getZeroUntyped</span>
+        <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs95', 242)" onmouseover="showTip(event, 'fs95', 242)" class="f">unbox</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">X</span><span class="o">&gt;</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Here are some examples of use:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+<span class="l">7: </span>
+<span class="l">8: </span>
+<span class="l">9: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">module</span> <span onmouseout="hideTip(event, 'fs96', 243)" onmouseover="showTip(event, 'fs96', 243)" class="t">Tests</span> <span class="o">=</span> 
+        <span onmouseout="hideTip(event, 'fs94', 244)" onmouseover="showTip(event, 'fs94', 244)" class="i">getZeroTyped</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 245)" onmouseover="showTip(event, 'fs33', 245)" class="t">unit</span><span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs94', 246)" onmouseover="showTip(event, 'fs94', 246)" class="i">getZeroTyped</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs20', 247)" onmouseover="showTip(event, 'fs20', 247)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs97', 248)" onmouseover="showTip(event, 'fs97', 248)" class="t">string</span><span class="o">&gt;</span> <span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs78', 249)" onmouseover="showTip(event, 'fs78', 249)" class="f">getZeroUntyped</span> <span onmouseout="hideTip(event, 'fs81', 250)" onmouseover="showTip(event, 'fs81', 250)" class="i">typeof</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 251)" onmouseover="showTip(event, 'fs33', 251)" class="t">unit</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 252)" onmouseover="showTip(event, 'fs20', 252)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs97', 253)" onmouseover="showTip(event, 'fs97', 253)" class="t">string</span><span class="o">&gt;</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs33', 254)" onmouseover="showTip(event, 'fs33', 254)" class="t">unit</span><span class="o">&gt;</span> 
+
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs98', 255)" onmouseover="showTip(event, 'fs98', 255)" class="i">y</span> <span class="o">=</span><span onmouseout="hideTip(event, 'fs81', 256)" onmouseover="showTip(event, 'fs81', 256)" class="i">typeof</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 257)" onmouseover="showTip(event, 'fs33', 257)" class="t">unit</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 258)" onmouseover="showTip(event, 'fs20', 258)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs97', 259)" onmouseover="showTip(event, 'fs97', 259)" class="t">string</span><span class="o">&gt;</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs33', 260)" onmouseover="showTip(event, 'fs33', 260)" class="t">unit</span><span class="o">&gt;</span> 
+        <span onmouseout="hideTip(event, 'fs78', 261)" onmouseover="showTip(event, 'fs78', 261)" class="f">getZeroUntyped</span> <span onmouseout="hideTip(event, 'fs98', 262)" onmouseover="showTip(event, 'fs98', 262)" class="i">y</span><span class="o">.</span><span class="i">GenericTypeArguments</span><span class="o">.</span>[<span class="n">1</span>]
+
+        <span onmouseout="hideTip(event, 'fs94', 263)" onmouseover="showTip(event, 'fs94', 263)" class="i">getZeroTyped</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 264)" onmouseover="showTip(event, 'fs33', 264)" class="t">unit</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 265)" onmouseover="showTip(event, 'fs20', 265)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs97', 266)" onmouseover="showTip(event, 'fs97', 266)" class="t">string</span><span class="o">&gt;</span> <span class="o">*</span> (<span onmouseout="hideTip(event, 'fs33', 267)" onmouseover="showTip(event, 'fs33', 267)" class="t">unit</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 268)" onmouseover="showTip(event, 'fs20', 268)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs68', 269)" onmouseover="showTip(event, 'fs68', 269)" class="t">int</span><span class="o">&gt;</span> <span class="o">*</span> ((<span onmouseout="hideTip(event, 'fs33', 270)" onmouseover="showTip(event, 'fs33', 270)" class="t">unit</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 271)" onmouseover="showTip(event, 'fs20', 271)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs33', 272)" onmouseover="showTip(event, 'fs33', 272)" class="t">unit</span><span class="o">&gt;</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs33', 273)" onmouseover="showTip(event, 'fs33', 273)" class="t">unit</span>) <span class="o">*</span> <span onmouseout="hideTip(event, 'fs20', 274)" onmouseover="showTip(event, 'fs20', 274)" class="t">Cell</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs99', 275)" onmouseover="showTip(event, 'fs99', 275)" class="t">bool</span><span class="o">&gt;</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs33', 276)" onmouseover="showTip(event, 'fs33', 276)" class="t">unit</span>))<span class="o">&gt;</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Now that we have the helpers defined we can define the initial trace for the above example as follows</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> _ <span class="o">=</span> <span class="i">example</span> (<span class="i">getZeroTyped</span><span class="o">&lt;</span>_<span class="o">&gt;</span>)
+</code></pre></td>
+</tr>
+</table>
+
+<p>The phantom type parameter of <code>getZeroType</code> is automatically inferred and the zero value automatically generated.</p>
+
+<p>Now let's get back to our motivating example for provisioning virtual machines in the cloud:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">module</span> <span class="t">MyResumableService</span> <span class="o">=</span>
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs100', 277)" onmouseover="showTip(event, 'fs100', 277)" class="f">myServiceApi</span> <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs57', 278)" onmouseover="showTip(event, 'fs57', 278)" class="i">resumable</span> {
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs3', 279)" onmouseover="showTip(event, 'fs3', 279)" class="i">machineName</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 280)" onmouseover="showTip(event, 'fs57', 280)" class="i">resumable</span> { <span class="k">return</span> <span onmouseout="hideTip(event, 'fs15', 281)" onmouseover="showTip(event, 'fs15', 281)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs1', 282)" onmouseover="showTip(event, 'fs1', 282)" class="f">getMachineName</span> () }
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs8', 283)" onmouseover="showTip(event, 'fs8', 283)" class="i">requestId</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 284)" onmouseover="showTip(event, 'fs57', 284)" class="i">resumable</span> { <span class="k">return</span> <span onmouseout="hideTip(event, 'fs15', 285)" onmouseover="showTip(event, 'fs15', 285)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs7', 286)" onmouseover="showTip(event, 'fs7', 286)" class="f">provisionVM</span> <span onmouseout="hideTip(event, 'fs3', 287)" onmouseover="showTip(event, 'fs3', 287)" class="i">machineName</span> }
+
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs101', 288)" onmouseover="showTip(event, 'fs101', 288)" class="i">vmready</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs57', 289)" onmouseover="showTip(event, 'fs57', 289)" class="i">resumable</span> { 
+                <span class="k">while</span> <span onmouseout="hideTip(event, 'fs16', 290)" onmouseover="showTip(event, 'fs16', 290)" class="f">not</span> <span class="o">&lt;|</span> <span onmouseout="hideTip(event, 'fs15', 291)" onmouseover="showTip(event, 'fs15', 291)" class="t">Environment</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs10', 292)" onmouseover="showTip(event, 'fs10', 292)" class="f">vmRequestSucceeded</span> <span onmouseout="hideTip(event, 'fs8', 293)" onmouseover="showTip(event, 'fs8', 293)" class="i">requestId</span> <span class="k">do</span>
+                    <span onmouseout="hideTip(event, 'fs2', 294)" onmouseover="showTip(event, 'fs2', 294)" class="f">printfn</span> <span class="s">&quot;Waiting for cloud request to complete...&quot;</span>
+                    <span onmouseout="hideTip(event, 'fs4', 295)" onmouseover="showTip(event, 'fs4', 295)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs17', 296)" onmouseover="showTip(event, 'fs17', 296)" class="i">Threading</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs18', 297)" onmouseover="showTip(event, 'fs18', 297)" class="t">Thread</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs19', 298)" onmouseover="showTip(event, 'fs19', 298)" class="f">Sleep</span>(<span class="n">1000</span>)
+                <span class="k">return</span> <span class="k">true</span>
+            }
+
+            <span onmouseout="hideTip(event, 'fs2', 299)" onmouseover="showTip(event, 'fs2', 299)" class="f">printfn</span> <span class="s">&quot;Request completed for machine </span><span class="pf">%s</span><span class="s">!&quot;</span> <span onmouseout="hideTip(event, 'fs3', 300)" onmouseover="showTip(event, 'fs3', 300)" class="i">machineName</span>
+            <span class="k">return</span> <span onmouseout="hideTip(event, 'fs3', 301)" onmouseover="showTip(event, 'fs3', 301)" class="i">machineName</span>, <span onmouseout="hideTip(event, 'fs8', 302)" onmouseover="showTip(event, 'fs8', 302)" class="i">requestId</span>, <span class="i">vmready</span>
+        }
+</code></pre></td>
+</tr>
+</table>
+
+<p>Does this look familiar? The actual implementation is almost identical to the original non-resumable one. We've just 
+sprinkled the resumable keyword in strategic places where we expect the computation to be interrupted.
+If you have played with F# asynchronous workflows before this concept should be very familiar.</p>
+
+<p>To run the operation we can just execute each individual step as follows:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp">    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs102', 303)" onmouseover="showTip(event, 'fs102', 303)" class="i">s1</span>,<span onmouseout="hideTip(event, 'fs103', 304)" onmouseover="showTip(event, 'fs103', 304)" class="i">r1</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs100', 305)" onmouseover="showTip(event, 'fs100', 305)" class="f">myServiceApi</span> (<span onmouseout="hideTip(event, 'fs104', 306)" onmouseover="showTip(event, 'fs104', 306)" class="t">Zero</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs94', 307)" onmouseover="showTip(event, 'fs94', 307)" class="i">getZeroTyped</span><span class="o">&lt;</span>_<span class="o">&gt;</span>)   <span class="c">// Get machine name</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs105', 308)" onmouseover="showTip(event, 'fs105', 308)" class="i">s2</span>,<span onmouseout="hideTip(event, 'fs106', 309)" onmouseover="showTip(event, 'fs106', 309)" class="i">r2</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs100', 310)" onmouseover="showTip(event, 'fs100', 310)" class="f">myServiceApi</span> <span onmouseout="hideTip(event, 'fs102', 311)" onmouseover="showTip(event, 'fs102', 311)" class="i">s1</span>                       <span class="c">// Submit request and get request id</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs107', 312)" onmouseover="showTip(event, 'fs107', 312)" class="i">s3</span>,<span onmouseout="hideTip(event, 'fs108', 313)" onmouseover="showTip(event, 'fs108', 313)" class="i">r3</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs100', 314)" onmouseover="showTip(event, 'fs100', 314)" class="f">myServiceApi</span> <span onmouseout="hideTip(event, 'fs105', 315)" onmouseover="showTip(event, 'fs105', 315)" class="i">s2</span>                       <span class="c">// Poll machine until ready</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs109', 316)" onmouseover="showTip(event, 'fs109', 316)" class="i">s4</span>,<span onmouseout="hideTip(event, 'fs110', 317)" onmouseover="showTip(event, 'fs110', 317)" class="i">r4</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs100', 318)" onmouseover="showTip(event, 'fs100', 318)" class="f">myServiceApi</span> <span onmouseout="hideTip(event, 'fs107', 319)" onmouseover="showTip(event, 'fs107', 319)" class="i">s3</span>                       <span class="c">// Polling completed</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs111', 320)" onmouseover="showTip(event, 'fs111', 320)" class="i">s5</span>,<span onmouseout="hideTip(event, 'fs112', 321)" onmouseover="showTip(event, 'fs112', 321)" class="i">r5</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs100', 322)" onmouseover="showTip(event, 'fs100', 322)" class="f">myServiceApi</span> <span onmouseout="hideTip(event, 'fs109', 323)" onmouseover="showTip(event, 'fs109', 323)" class="i">s4</span>                       <span class="c">// return result</span>
+</code></pre></td>
+</tr>
+</table>
+
+<p>Each call returns a new state holding the current trace of execution.
+Executing each step of the computation one at a time is tedious and not very practical. 
+Instead of manually calling
+the function to advance by a single step we can use the following helper to run the entire operation through completion:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+<span class="l">7: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="k">rec</span> <span onmouseout="hideTip(event, 'fs113', 324)" onmouseover="showTip(event, 'fs113', 324)" class="f">runThroughCompletion</span> <span onmouseout="hideTip(event, 'fs114', 325)" onmouseover="showTip(event, 'fs114', 325)" class="f">m</span> (<span onmouseout="hideTip(event, 'fs115', 326)" onmouseover="showTip(event, 'fs115', 326)" class="i">state</span>, <span onmouseout="hideTip(event, 'fs116', 327)" onmouseover="showTip(event, 'fs116', 327)" class="i">result</span>) <span class="o">=</span>
+    <span class="k">match</span> <span onmouseout="hideTip(event, 'fs116', 328)" onmouseover="showTip(event, 'fs116', 328)" class="i">result</span> <span class="k">with</span>
+    | <span onmouseout="hideTip(event, 'fs21', 329)" onmouseover="showTip(event, 'fs21', 329)" class="p">NotExecuted</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs113', 330)" onmouseover="showTip(event, 'fs113', 330)" class="f">runThroughCompletion</span> <span onmouseout="hideTip(event, 'fs114', 331)" onmouseover="showTip(event, 'fs114', 331)" class="f">m</span> (<span onmouseout="hideTip(event, 'fs114', 332)" onmouseover="showTip(event, 'fs114', 332)" class="f">m</span> <span onmouseout="hideTip(event, 'fs115', 333)" onmouseover="showTip(event, 'fs115', 333)" class="i">state</span>)
+    | <span onmouseout="hideTip(event, 'fs22', 334)" onmouseover="showTip(event, 'fs22', 334)" class="p">Result</span> <span onmouseout="hideTip(event, 'fs117', 335)" onmouseover="showTip(event, 'fs117', 335)" class="i">r</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs117', 336)" onmouseover="showTip(event, 'fs117', 336)" class="i">r</span>
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs118', 337)" onmouseover="showTip(event, 'fs118', 337)" class="f">run</span> <span onmouseout="hideTip(event, 'fs114', 338)" onmouseover="showTip(event, 'fs114', 338)" class="f">m</span> <span class="o">=</span>
+    <span onmouseout="hideTip(event, 'fs113', 339)" onmouseover="showTip(event, 'fs113', 339)" class="f">runThroughCompletion</span> <span onmouseout="hideTip(event, 'fs114', 340)" onmouseover="showTip(event, 'fs114', 340)" class="f">m</span> (<span onmouseout="hideTip(event, 'fs104', 341)" onmouseover="showTip(event, 'fs104', 341)" class="t">Zero</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs94', 342)" onmouseover="showTip(event, 'fs94', 342)" class="i">getZeroTyped</span><span class="o">&lt;</span>_<span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs21', 343)" onmouseover="showTip(event, 'fs21', 343)" class="p">NotExecuted</span>) 
+</code></pre></td>
+</tr>
+</table>
+
+<p>Our service API can then be called in a single command:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span onmouseout="hideTip(event, 'fs118', 344)" onmouseover="showTip(event, 'fs118', 344)" class="f">run</span> <span onmouseout="hideTip(event, 'fs119', 345)" onmouseover="showTip(event, 'fs119', 345)" class="t">MyResumableService</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs100', 346)" onmouseover="showTip(event, 'fs100', 346)" class="f">myServiceApi</span>
+</code></pre></td>
+</tr>
+</table>
+
+<h2>Idempotence</h2>
+
+<p>One important property of <code>runThroughCompletion</code> is that it is <strong>idempotent</strong>.
+This means that executing it once, twice or more times consecutively yields the exact same result.
+Mathematically this can be expressed as:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"> <span class="i">runThroughCompletion</span>(<span class="i">runThroughCompletion</span>(<span class="i">x</span>)) <span class="o">=</span> <span class="i">runThroughCompletion</span>(<span class="i">x</span>)
+</code></pre></td>
+</tr>
+</table>
+
+<p>for all state x.</p>
+
+<p>This is a desirable property for services which can be interrupted for various reasons
+like outages, updates, scaling or migrations.
+When such event happens the service typically fails over to a redudant instance of the service that will
+attempt to execute the same operation again. Making the operation idempotent guarantees 
+that the second execution yields a deterministic outcome regardless of whether the first execution completed or not.</p>
+
+<h2>Cancellability and Resumability</h2>
+
+<p>Another desirable property is <strong>cancellability</strong>. Meaning that if the system interrupts 
+the operation it should leave itself in a well-defined resumable state. In other words it should be possible
+to interrupt execution of <code>runThroughCompletion</code> without bringing the system to a corrupt state.</p>
+
+<blockquote>
+  <p><strong>Note</strong> Here I want to highlight an important limitation of the resumable monad: it guarantees cancellability 
+at resumable points only. If the execution is  interrupted between those resumable points (for instance after 
+the call to the virtual machine provisioning API but before the call returns with the requestId) then the state 
+of the system will be undefined!</p>
+</blockquote>
+
+<p>To achieve resumability one needs to identify the possible side-effects that the operation has on the environment.
+In our example those side-effects are:</p>
+
+<ol>
+<li>A machine name was requested from the user;</li>
+<li>A request to provision a VM was issued to an external cloud service;</li>
+<li>The polling has completed and the cloud service has honoured the request.</li>
+</ol>
+
+<p>The resumable monad let's you easily capture those side effects and control points using the <code>resumable { ... }</code> construct.</p>
+
+<h2>Execution engine</h2>
+
+<p>The other thing we need is an execution engine that takes advantage of those control points to cancel and resume the computation.
+We can achieve that by adding <em>persistence</em> to our implementation of <code>run</code>. Each time we advance the computation to a resumable point we can 
+save the current trace of execution and persist it to external storage (blob, queue,...). Next time we run the operation
+we read the saved state from disk and continue were we left off.</p>
+
+<p>Here is a possible implementation using Json file serialization. (This codes requires the NewtonSoft Json nuget package.):</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="prep">#r</span> <span class="s">@&quot;..\packages\Newtonsoft.Json.7.0.1\lib\net45\Newtonsoft.Json.dll&quot;</span>
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs120', 347)" onmouseover="showTip(event, 'fs120', 347)" class="f">runResumable</span> (<span onmouseout="hideTip(event, 'fs121', 348)" onmouseover="showTip(event, 'fs121', 348)" class="i">p</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs23', 349)" onmouseover="showTip(event, 'fs23', 349)" class="i">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span>,<span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span>) <span onmouseout="hideTip(event, 'fs122', 350)" onmouseover="showTip(event, 'fs122', 350)" class="i">fileName</span> <span class="o">=</span> 
+    <span class="k">let</span> <span class="k">rec</span> <span onmouseout="hideTip(event, 'fs123', 351)" onmouseover="showTip(event, 'fs123', 351)" class="f">aux</span> (<span onmouseout="hideTip(event, 'fs124', 352)" onmouseover="showTip(event, 'fs124', 352)" class="i">state</span><span class="o">:</span><span class="o">&#39;</span><span class="i">h</span>, <span onmouseout="hideTip(event, 'fs125', 353)" onmouseover="showTip(event, 'fs125', 353)" class="i">result</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs4', 354)" onmouseover="showTip(event, 'fs4', 354)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs126', 355)" onmouseover="showTip(event, 'fs126', 355)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs127', 356)" onmouseover="showTip(event, 'fs127', 356)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs128', 357)" onmouseover="showTip(event, 'fs128', 357)" class="f">WriteAllText</span>(<span onmouseout="hideTip(event, 'fs122', 358)" onmouseover="showTip(event, 'fs122', 358)" class="i">fileName</span>, <span onmouseout="hideTip(event, 'fs129', 359)" onmouseover="showTip(event, 'fs129', 359)" class="i">Newtonsoft</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs130', 360)" onmouseover="showTip(event, 'fs130', 360)" class="i">Json</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs131', 361)" onmouseover="showTip(event, 'fs131', 361)" class="t">JsonConvert</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs132', 362)" onmouseover="showTip(event, 'fs132', 362)" class="f">SerializeObject</span>(<span onmouseout="hideTip(event, 'fs124', 363)" onmouseover="showTip(event, 'fs124', 363)" class="i">state</span>))
+        <span class="k">match</span> <span onmouseout="hideTip(event, 'fs125', 364)" onmouseover="showTip(event, 'fs125', 364)" class="i">result</span> <span class="k">with</span>
+        | <span onmouseout="hideTip(event, 'fs21', 365)" onmouseover="showTip(event, 'fs21', 365)" class="p">NotExecuted</span> <span class="k">-&gt;</span> 
+            <span onmouseout="hideTip(event, 'fs123', 366)" onmouseover="showTip(event, 'fs123', 366)" class="f">aux</span> (<span onmouseout="hideTip(event, 'fs121', 367)" onmouseover="showTip(event, 'fs121', 367)" class="i">p</span> <span onmouseout="hideTip(event, 'fs124', 368)" onmouseover="showTip(event, 'fs124', 368)" class="i">state</span>)
+        | <span onmouseout="hideTip(event, 'fs22', 369)" onmouseover="showTip(event, 'fs22', 369)" class="p">Result</span> <span onmouseout="hideTip(event, 'fs133', 370)" onmouseover="showTip(event, 'fs133', 370)" class="i">r</span> <span class="k">-&gt;</span> (<span onmouseout="hideTip(event, 'fs124', 371)" onmouseover="showTip(event, 'fs124', 371)" class="i">state</span>, <span onmouseout="hideTip(event, 'fs125', 372)" onmouseover="showTip(event, 'fs125', 372)" class="i">result</span>)
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs134', 373)" onmouseover="showTip(event, 'fs134', 373)" class="i">initialState</span> <span class="o">=</span>
+        <span class="k">if</span> <span onmouseout="hideTip(event, 'fs4', 374)" onmouseover="showTip(event, 'fs4', 374)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs126', 375)" onmouseover="showTip(event, 'fs126', 375)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs127', 376)" onmouseover="showTip(event, 'fs127', 376)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs135', 377)" onmouseover="showTip(event, 'fs135', 377)" class="f">Exists</span> <span onmouseout="hideTip(event, 'fs122', 378)" onmouseover="showTip(event, 'fs122', 378)" class="i">fileName</span> <span class="k">then</span>
+            <span onmouseout="hideTip(event, 'fs129', 379)" onmouseover="showTip(event, 'fs129', 379)" class="i">Newtonsoft</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs130', 380)" onmouseover="showTip(event, 'fs130', 380)" class="i">Json</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs131', 381)" onmouseover="showTip(event, 'fs131', 381)" class="t">JsonConvert</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs136', 382)" onmouseover="showTip(event, 'fs136', 382)" class="f">DeserializeObject</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>(<span onmouseout="hideTip(event, 'fs4', 383)" onmouseover="showTip(event, 'fs4', 383)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs126', 384)" onmouseover="showTip(event, 'fs126', 384)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs127', 385)" onmouseover="showTip(event, 'fs127', 385)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs137', 386)" onmouseover="showTip(event, 'fs137', 386)" class="f">ReadAllText</span>(<span onmouseout="hideTip(event, 'fs122', 387)" onmouseover="showTip(event, 'fs122', 387)" class="i">fileName</span>))
+        <span class="k">else</span>
+            <span onmouseout="hideTip(event, 'fs104', 388)" onmouseover="showTip(event, 'fs104', 388)" class="t">Zero</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs94', 389)" onmouseover="showTip(event, 'fs94', 389)" class="i">getZeroTyped</span><span class="o">&lt;</span>_<span class="o">&gt;</span>
+
+    <span onmouseout="hideTip(event, 'fs123', 390)" onmouseover="showTip(event, 'fs123', 390)" class="f">aux</span> (<span onmouseout="hideTip(event, 'fs134', 391)" onmouseover="showTip(event, 'fs134', 391)" class="i">initialState</span>, <span onmouseout="hideTip(event, 'fs21', 392)" onmouseover="showTip(event, 'fs21', 392)" class="p">NotExecuted</span>)
+</code></pre></td>
+</tr>
+</table>
+
+<p>Now let's excute the service API and simulate a service interruption using an async timeout:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs139', 397)" onmouseover="showTip(event, 'fs139', 397)" class="i">p</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs140', 398)" onmouseover="showTip(event, 'fs140', 398)" class="i">async</span> {
+    <span class="k">return</span> <span onmouseout="hideTip(event, 'fs120', 399)" onmouseover="showTip(event, 'fs120', 399)" class="f">runResumable</span> <span onmouseout="hideTip(event, 'fs119', 400)" onmouseover="showTip(event, 'fs119', 400)" class="t">MyResumableService</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs100', 401)" onmouseover="showTip(event, 'fs100', 401)" class="f">myServiceApi</span> <span class="s">@&quot;c:\temp\apiprogress.json&quot;</span>
+}
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs141', 402)" onmouseover="showTip(event, 'fs141', 402)" class="i">t</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs142', 403)" onmouseover="showTip(event, 'fs142', 403)" class="t">Async</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs143', 404)" onmouseover="showTip(event, 'fs143', 404)" class="f">RunSynchronously</span>(<span onmouseout="hideTip(event, 'fs139', 405)" onmouseover="showTip(event, 'fs139', 405)" class="i">p</span>, <span class="n">10</span>)
+</code></pre></td>
+</tr>
+</table>
+
+<p>This first run prompts you to enter the machine name, it then submits the request to the cloud and
+starts polling for completion before failing due to the forced timeouts of 10ms.
+If you now run the same command once again:</p>
+
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs144', 406)" onmouseover="showTip(event, 'fs144', 406)" class="i">t2</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs142', 407)" onmouseover="showTip(event, 'fs142', 407)" class="t">Async</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs143', 408)" onmouseover="showTip(event, 'fs143', 408)" class="f">RunSynchronously</span>(<span onmouseout="hideTip(event, 'fs139', 409)" onmouseover="showTip(event, 'fs139', 409)" class="i">p</span>, <span class="n">100</span>)
+</code></pre></td>
+</tr>
+</table>
+
+<p>Not only you are not prompted a machine name but the machine name and 
+request Id are restored from the previous run 
+and the VM provisioning request completes successfully!</p>
+
+<h1>Conclusion</h1>
+
+<p>I hope you enjoyed this article. For the sake of succinctness I am not going to repeat in the conclusion 
+what I already discussed in this article so please refer to the abstract for that :-)</p>
+
+<p>Possible improvements include support for other monadic operators
+(<code>TryFinally</code>, <code>TryWith</code>, <code>Using</code>) and integration with the <code>async</code> monad
+to enable definition of asynchronous resumable computations.</p>
+
+<h1>References</h1>
+
+<p>There are plenty of references on monads on the internet. You can easily find them with your favourite search engine.
+One related topic in the monadic world is the so-called "state monad".
+Also I am sure somebody else already came up with something similar to the 
+resuamble monad. I did not look in the literature myself, if you have a 
+reference please send it to me through github and I'll add the reference here.</p>
+
+<h1>Thanks</h1>
+
+<p>To Tomas Petricek for his marvelous literate programming package for F# that was used to typeset this HTML page.</p>
+
+          <div class="tip" id="fs1">val getMachineName : unit -&gt; string<br /><br />Full name: ResumableMonadDoc.Environment.getMachineName</div>
+<div class="tip" id="fs2">val printfn : format:Printf.TextWriterFormat&lt;&#39;T&gt; -&gt; &#39;T<br /><br />Full name: Microsoft.FSharp.Core.ExtraTopLevelOperators.printfn</div>
+<div class="tip" id="fs3">val machineName : string</div>
+<div class="tip" id="fs4">namespace System</div>
+<div class="tip" id="fs5">type Console =<br />&#160;&#160;static member BackgroundColor : ConsoleColor with get, set<br />&#160;&#160;static member Beep : unit -&gt; unit + 1 overload<br />&#160;&#160;static member BufferHeight : int with get, set<br />&#160;&#160;static member BufferWidth : int with get, set<br />&#160;&#160;static member CapsLock : bool<br />&#160;&#160;static member Clear : unit -&gt; unit<br />&#160;&#160;static member CursorLeft : int with get, set<br />&#160;&#160;static member CursorSize : int with get, set<br />&#160;&#160;static member CursorTop : int with get, set<br />&#160;&#160;static member CursorVisible : bool with get, set<br />&#160;&#160;...<br /><br />Full name: System.Console</div>
+<div class="tip" id="fs6">System.Console.ReadLine() : string</div>
+<div class="tip" id="fs7">val provisionVM : machineName:string -&gt; int<br /><br />Full name: ResumableMonadDoc.Environment.provisionVM</div>
+<div class="tip" id="fs8">val requestId : int</div>
+<div class="tip" id="fs9">Multiple items<br />type Random =<br />&#160;&#160;new : unit -&gt; Random + 1 overload<br />&#160;&#160;member Next : unit -&gt; int + 2 overloads<br />&#160;&#160;member NextBytes : buffer:byte[] -&gt; unit<br />&#160;&#160;member NextDouble : unit -&gt; float<br /><br />Full name: System.Random<br /><br />--------------------<br />System.Random() : unit<br />System.Random(Seed: int) : unit</div>
+<div class="tip" id="fs10">val vmRequestSucceeded : (int -&gt; bool)<br /><br />Full name: ResumableMonadDoc.Environment.vmRequestSucceeded</div>
+<div class="tip" id="fs11">val waitTime : int ref</div>
+<div class="tip" id="fs12">Multiple items<br />val ref : value:&#39;T -&gt; &#39;T ref<br /><br />Full name: Microsoft.FSharp.Core.Operators.ref<br /><br />--------------------<br />type &#39;T ref = Ref&lt;&#39;T&gt;<br /><br />Full name: Microsoft.FSharp.Core.ref&lt;_&gt;</div>
+<div class="tip" id="fs13">val aux : (int -&gt; bool)</div>
+<div class="tip" id="fs14">val myServiceApi : unit -&gt; string * int<br /><br />Full name: ResumableMonadDoc.MyService.myServiceApi</div>
+<div class="tip" id="fs15">module Environment<br /><br />from ResumableMonadDoc</div>
+<div class="tip" id="fs16">val not : value:bool -&gt; bool<br /><br />Full name: Microsoft.FSharp.Core.Operators.not</div>
+<div class="tip" id="fs17">namespace System.Threading</div>
+<div class="tip" id="fs18">Multiple items<br />type Thread =<br />&#160;&#160;inherit CriticalFinalizerObject<br />&#160;&#160;new : start:ThreadStart -&gt; Thread + 3 overloads<br />&#160;&#160;member Abort : unit -&gt; unit + 1 overload<br />&#160;&#160;member ApartmentState : ApartmentState with get, set<br />&#160;&#160;member CurrentCulture : CultureInfo with get, set<br />&#160;&#160;member CurrentUICulture : CultureInfo with get, set<br />&#160;&#160;member DisableComObjectEagerCleanup : unit -&gt; unit<br />&#160;&#160;member ExecutionContext : ExecutionContext<br />&#160;&#160;member GetApartmentState : unit -&gt; ApartmentState<br />&#160;&#160;member GetCompressedStack : unit -&gt; CompressedStack<br />&#160;&#160;member GetHashCode : unit -&gt; int<br />&#160;&#160;...<br /><br />Full name: System.Threading.Thread<br /><br />--------------------<br />System.Threading.Thread(start: System.Threading.ThreadStart) : unit<br />System.Threading.Thread(start: System.Threading.ParameterizedThreadStart) : unit<br />System.Threading.Thread(start: System.Threading.ThreadStart, maxStackSize: int) : unit<br />System.Threading.Thread(start: System.Threading.ParameterizedThreadStart, maxStackSize: int) : unit</div>
+<div class="tip" id="fs19">System.Threading.Thread.Sleep(timeout: System.TimeSpan) : unit<br />System.Threading.Thread.Sleep(millisecondsTimeout: int) : unit</div>
+<div class="tip" id="fs20">type Cell&lt;&#39;t&gt; =<br />&#160;&#160;| NotExecuted<br />&#160;&#160;| Result of &#39;t<br /><br />Full name: ResumableMonadDoc.Cell&lt;_&gt;</div>
+<div class="tip" id="fs21">union case Cell.NotExecuted: Cell&lt;&#39;t&gt;</div>
+<div class="tip" id="fs22">union case Cell.Result: &#39;t -&gt; Cell&lt;&#39;t&gt;</div>
+<div class="tip" id="fs23">type Resumable&lt;&#39;h,&#39;t&gt; = &#39;h -&gt; &#39;h * Cell&lt;&#39;t&gt;<br /><br />Full name: ResumableMonadDoc.Resumable&lt;_,_&gt;</div>
+<div class="tip" id="fs24">Multiple items<br />type ResumableBuilder =<br />&#160;&#160;new : unit -&gt; ResumableBuilder<br />&#160;&#160;member Bind : f:Resumable&lt;&#39;u,&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;) -&gt; Resumable&lt;(&#39;u * Cell&lt;&#39;a&gt; * &#39;v),&#39;b&gt;<br />&#160;&#160;member Combine : p1:Resumable&lt;&#39;u,unit&gt; * p2:Resumable&lt;&#39;v,&#39;b&gt; -&gt; Resumable&lt;(&#39;u * Cell&lt;unit&gt; * &#39;v),&#39;b&gt;<br />&#160;&#160;member Delay : generator:(unit -&gt; Resumable&lt;&#39;u,&#39;a&gt;) -&gt; (&#39;u -&gt; &#39;u * Cell&lt;&#39;a&gt;)<br />&#160;&#160;member Return : x:&#39;t -&gt; (unit -&gt; unit * Cell&lt;&#39;t&gt;)<br />&#160;&#160;member ReturnFrom : x:&#39;a -&gt; &#39;a<br />&#160;&#160;member While : gd:(unit -&gt; bool) * prog:Resumable&lt;unit,unit&gt; -&gt; Resumable&lt;unit,unit&gt;<br />&#160;&#160;member Zero : unit -&gt; (unit -&gt; unit * Cell&lt;unit&gt;)<br /><br />Full name: ResumableMonadDoc.ResumableBuilder<br /><br />--------------------<br />new : unit -&gt; ResumableBuilder</div>
+<div class="tip" id="fs25">member ResumableBuilder.Zero : unit -&gt; (unit -&gt; unit * Cell&lt;unit&gt;)<br /><br />Full name: ResumableMonadDoc.ResumableBuilder.Zero</div>
+<div class="tip" id="fs26">val __ : ResumableBuilder</div>
+<div class="tip" id="fs27">member ResumableBuilder.Return : x:&#39;t -&gt; (unit -&gt; unit * Cell&lt;&#39;t&gt;)<br /><br />Full name: ResumableMonadDoc.ResumableBuilder.Return</div>
+<div class="tip" id="fs28">val x : &#39;t</div>
+<div class="tip" id="fs29">member ResumableBuilder.ReturnFrom : x:&#39;a -&gt; &#39;a<br /><br />Full name: ResumableMonadDoc.ResumableBuilder.ReturnFrom</div>
+<div class="tip" id="fs30">val x : &#39;a</div>
+<div class="tip" id="fs31">member ResumableBuilder.Delay : generator:(unit -&gt; Resumable&lt;&#39;u,&#39;a&gt;) -&gt; (&#39;u -&gt; &#39;u * Cell&lt;&#39;a&gt;)<br /><br />Full name: ResumableMonadDoc.ResumableBuilder.Delay</div>
+<div class="tip" id="fs32">val generator : (unit -&gt; Resumable&lt;&#39;u,&#39;a&gt;)</div>
+<div class="tip" id="fs33">type unit = Unit<br /><br />Full name: Microsoft.FSharp.Core.unit</div>
+<div class="tip" id="fs34">val h : &#39;u</div>
+<div class="tip" id="fs35">member ResumableBuilder.Bind : f:Resumable&lt;&#39;u,&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;) -&gt; Resumable&lt;(&#39;u * Cell&lt;&#39;a&gt; * &#39;v),&#39;b&gt;<br /><br />Full name: ResumableMonadDoc.ResumableBuilder.Bind</div>
+<div class="tip" id="fs36">val f : Resumable&lt;&#39;u,&#39;a&gt;</div>
+<div class="tip" id="fs37">val g : (&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;)</div>
+<div class="tip" id="fs38">val u : &#39;u</div>
+<div class="tip" id="fs39">val a : Cell&lt;&#39;a&gt;</div>
+<div class="tip" id="fs40">val v : &#39;v</div>
+<div class="tip" id="fs41">val u_stepped : &#39;u</div>
+<div class="tip" id="fs42">val a_stepped : Cell&lt;&#39;a&gt;</div>
+<div class="tip" id="fs43">val _a : &#39;a</div>
+<div class="tip" id="fs44">val v_stepped : &#39;v</div>
+<div class="tip" id="fs45">val b_stepped : Cell&lt;&#39;b&gt;</div>
+<div class="tip" id="fs46">member ResumableBuilder.Combine : p1:Resumable&lt;&#39;u,unit&gt; * p2:Resumable&lt;&#39;v,&#39;b&gt; -&gt; Resumable&lt;(&#39;u * Cell&lt;unit&gt; * &#39;v),&#39;b&gt;<br /><br />Full name: ResumableMonadDoc.ResumableBuilder.Combine</div>
+<div class="tip" id="fs47">val p1 : Resumable&lt;&#39;u,unit&gt;</div>
+<div class="tip" id="fs48">val p2 : Resumable&lt;&#39;v,&#39;b&gt;</div>
+<div class="tip" id="fs49">member ResumableBuilder.Bind : f:Resumable&lt;&#39;u,&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;) -&gt; Resumable&lt;(&#39;u * Cell&lt;&#39;a&gt; * &#39;v),&#39;b&gt;</div>
+<div class="tip" id="fs50">member ResumableBuilder.While : gd:(unit -&gt; bool) * prog:Resumable&lt;unit,unit&gt; -&gt; Resumable&lt;unit,unit&gt;<br /><br />Full name: ResumableMonadDoc.ResumableBuilder.While</div>
+<div class="tip" id="fs51">val gd : (unit -&gt; bool)</div>
+<div class="tip" id="fs52">val prog : Resumable&lt;unit,unit&gt;</div>
+<div class="tip" id="fs53">val whileA : ((unit -&gt; bool) -&gt; (unit -&gt; unit * Cell&lt;unit&gt;) -&gt; unit -&gt; unit * Cell&lt;unit&gt;)</div>
+<div class="tip" id="fs54">val prog : (unit -&gt; unit * Cell&lt;unit&gt;)</div>
+<div class="tip" id="fs55">member ResumableBuilder.Zero : unit -&gt; (unit -&gt; unit * Cell&lt;unit&gt;)</div>
+<div class="tip" id="fs56">val u : unit</div>
+<div class="tip" id="fs57">val resumable : ResumableBuilder<br /><br />Full name: ResumableMonadDoc.resumable</div>
+<div class="tip" id="fs58">val example : (unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit) -&gt; (unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit)) * Cell&lt;int * int&gt;)<br /><br />Full name: ResumableMonadDoc.Example.example</div>
+<div class="tip" id="fs59">val x : int</div>
+<div class="tip" id="fs60">val y : int</div>
+<div class="tip" id="fs61">val s0 : unit * Cell&lt;&#39;a&gt; * (unit * Cell&lt;&#39;b&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.s0</div>
+<div class="tip" id="fs62">val s1 : unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.s1</div>
+<div class="tip" id="fs63">val r1 : Cell&lt;int * int&gt;<br /><br />Full name: ResumableMonadDoc.Example.r1</div>
+<div class="tip" id="fs64">val s2 : unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.s2</div>
+<div class="tip" id="fs65">val r2 : Cell&lt;int * int&gt;<br /><br />Full name: ResumableMonadDoc.Example.r2</div>
+<div class="tip" id="fs66">val s3 : unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.s3</div>
+<div class="tip" id="fs67">val r3 : Cell&lt;int * int&gt;<br /><br />Full name: ResumableMonadDoc.Example.r3</div>
+<div class="tip" id="fs68">Multiple items<br />val int : value:&#39;T -&gt; int (requires member op_Explicit)<br /><br />Full name: Microsoft.FSharp.Core.Operators.int<br /><br />--------------------<br />type int = int32<br /><br />Full name: Microsoft.FSharp.Core.int<br /><br />--------------------<br />type int&lt;&#39;Measure&gt; = int<br /><br />Full name: Microsoft.FSharp.Core.int&lt;_&gt;</div>
+<div class="tip" id="fs69">val z0 : unit * Cell&lt;&#39;a&gt; * (unit * Cell&lt;&#39;b&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.z0</div>
+<div class="tip" id="fs70">val z : r:&#39;v -&gt; unit * Cell&lt;&#39;a&gt; * &#39;v<br /><br />Full name: ResumableMonadDoc.Example.z</div>
+<div class="tip" id="fs71">val r : &#39;v</div>
+<div class="tip" id="fs72">val z0_b : unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.z0_b</div>
+<div class="tip" id="fs73">val z0_c : unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.z0_c</div>
+<div class="tip" id="fs74">val z0_d : unit * Cell&lt;int&gt; * (unit * Cell&lt;int&gt; * unit)<br /><br />Full name: ResumableMonadDoc.Example.z0_d</div>
+<div class="tip" id="fs75">namespace Microsoft</div>
+<div class="tip" id="fs76">namespace Microsoft.FSharp</div>
+<div class="tip" id="fs77">namespace Microsoft.FSharp.Reflection</div>
+<div class="tip" id="fs78">val getZeroUntyped&lt;&#39;X&gt; : _type:System.Type -&gt; obj<br /><br />Full name: ResumableMonadDoc.Zero.getZeroUntyped</div>
+<div class="tip" id="fs79">type Type =<br />&#160;&#160;inherit MemberInfo<br />&#160;&#160;member Assembly : Assembly<br />&#160;&#160;member AssemblyQualifiedName : string<br />&#160;&#160;member Attributes : TypeAttributes<br />&#160;&#160;member BaseType : Type<br />&#160;&#160;member ContainsGenericParameters : bool<br />&#160;&#160;member DeclaringMethod : MethodBase<br />&#160;&#160;member DeclaringType : Type<br />&#160;&#160;member Equals : o:obj -&gt; bool + 1 overload<br />&#160;&#160;member FindInterfaces : filter:TypeFilter * filterCriteria:obj -&gt; Type[]<br />&#160;&#160;member FindMembers : memberType:MemberTypes * bindingAttr:BindingFlags * filter:MemberFilter * filterCriteria:obj -&gt; MemberInfo[]<br />&#160;&#160;...<br /><br />Full name: System.Type</div>
+<div class="tip" id="fs80">val _type : System.Type</div>
+<div class="tip" id="fs81">val typeof&lt;&#39;T&gt; : System.Type<br /><br />Full name: Microsoft.FSharp.Core.Operators.typeof</div>
+<div class="tip" id="fs82">val box : value:&#39;T -&gt; obj<br /><br />Full name: Microsoft.FSharp.Core.Operators.box</div>
+<div class="tip" id="fs83">property System.Type.IsGenericType: bool</div>
+<div class="tip" id="fs84">System.Type.GetGenericTypeDefinition() : System.Type</div>
+<div class="tip" id="fs85">val typedefof&lt;&#39;T&gt; : System.Type<br /><br />Full name: Microsoft.FSharp.Core.Operators.typedefof</div>
+<div class="tip" id="fs86">type FSharpValue =<br />&#160;&#160;static member GetExceptionFields : exn:obj * ?bindingFlags:BindingFlags -&gt; obj []<br />&#160;&#160;static member GetRecordField : record:obj * info:PropertyInfo -&gt; obj<br />&#160;&#160;static member GetRecordFields : record:obj * ?bindingFlags:BindingFlags -&gt; obj []<br />&#160;&#160;static member GetTupleField : tuple:obj * index:int -&gt; obj<br />&#160;&#160;static member GetTupleFields : tuple:obj -&gt; obj []<br />&#160;&#160;static member GetUnionFields : value:obj * unionType:Type * ?bindingFlags:BindingFlags -&gt; UnionCaseInfo * obj []<br />&#160;&#160;static member MakeFunction : functionType:Type * implementation:(obj -&gt; obj) -&gt; obj<br />&#160;&#160;static member MakeRecord : recordType:Type * values:obj [] * ?bindingFlags:BindingFlags -&gt; obj<br />&#160;&#160;static member MakeTuple : tupleElements:obj [] * tupleType:Type -&gt; obj<br />&#160;&#160;static member MakeUnion : unionCase:UnionCaseInfo * args:obj [] * ?bindingFlags:BindingFlags -&gt; obj<br />&#160;&#160;...<br /><br />Full name: Microsoft.FSharp.Reflection.FSharpValue</div>
+<div class="tip" id="fs87">static member FSharpValue.MakeUnion : unionCase:UnionCaseInfo * args:obj [] * ?allowAccessToPrivateRepresentation:bool -&gt; obj<br />static member FSharpValue.MakeUnion : unionCase:UnionCaseInfo * args:obj [] * ?bindingFlags:System.Reflection.BindingFlags -&gt; obj</div>
+<div class="tip" id="fs88">type FSharpType =<br />&#160;&#160;static member GetExceptionFields : exceptionType:Type * ?bindingFlags:BindingFlags -&gt; PropertyInfo []<br />&#160;&#160;static member GetFunctionElements : functionType:Type -&gt; Type * Type<br />&#160;&#160;static member GetRecordFields : recordType:Type * ?bindingFlags:BindingFlags -&gt; PropertyInfo []<br />&#160;&#160;static member GetTupleElements : tupleType:Type -&gt; Type []<br />&#160;&#160;static member GetUnionCases : unionType:Type * ?bindingFlags:BindingFlags -&gt; UnionCaseInfo []<br />&#160;&#160;static member IsExceptionRepresentation : exceptionType:Type * ?bindingFlags:BindingFlags -&gt; bool<br />&#160;&#160;static member IsFunction : typ:Type -&gt; bool<br />&#160;&#160;static member IsModule : typ:Type -&gt; bool<br />&#160;&#160;static member IsRecord : typ:Type * ?bindingFlags:BindingFlags -&gt; bool<br />&#160;&#160;static member IsTuple : typ:Type -&gt; bool<br />&#160;&#160;...<br /><br />Full name: Microsoft.FSharp.Reflection.FSharpType</div>
+<div class="tip" id="fs89">static member FSharpType.GetUnionCases : unionType:System.Type * ?allowAccessToPrivateRepresentation:bool -&gt; UnionCaseInfo []<br />static member FSharpType.GetUnionCases : unionType:System.Type * ?bindingFlags:System.Reflection.BindingFlags -&gt; UnionCaseInfo []</div>
+<div class="tip" id="fs90">static member FSharpValue.MakeTuple : tupleElements:obj [] * tupleType:System.Type -&gt; obj</div>
+<div class="tip" id="fs91">module Array<br /><br />from Microsoft.FSharp.Collections</div>
+<div class="tip" id="fs92">val map : mapping:(&#39;T -&gt; &#39;U) -&gt; array:&#39;T [] -&gt; &#39;U []<br /><br />Full name: Microsoft.FSharp.Collections.Array.map</div>
+<div class="tip" id="fs93">val invalidArg : argumentName:string -&gt; message:string -&gt; &#39;T<br /><br />Full name: Microsoft.FSharp.Core.Operators.invalidArg</div>
+<div class="tip" id="fs94">val getZeroTyped&lt;&#39;X&gt; : &#39;X<br /><br />Full name: ResumableMonadDoc.Zero.getZeroTyped</div>
+<div class="tip" id="fs95">val unbox : value:obj -&gt; &#39;T<br /><br />Full name: Microsoft.FSharp.Core.Operators.unbox</div>
+<div class="tip" id="fs96">module Tests<br /><br />from ResumableMonadDoc.Zero</div>
+<div class="tip" id="fs97">Multiple items<br />val string : value:&#39;T -&gt; string<br /><br />Full name: Microsoft.FSharp.Core.Operators.string<br /><br />--------------------<br />type string = System.String<br /><br />Full name: Microsoft.FSharp.Core.string</div>
+<div class="tip" id="fs98">val y : System.Type<br /><br />Full name: ResumableMonadDoc.Zero.Tests.y</div>
+<div class="tip" id="fs99">type bool = System.Boolean<br /><br />Full name: Microsoft.FSharp.Core.bool</div>
+<div class="tip" id="fs100">val myServiceApi : (unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit)) -&gt; (unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))) * Cell&lt;string * int * bool&gt;)<br /><br />Full name: ResumableMonadDoc.MyResumableService.myServiceApi</div>
+<div class="tip" id="fs101">val vmready : bool</div>
+<div class="tip" id="fs102">val s1 : unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))<br /><br />Full name: ResumableMonadDoc.MyResumableService.s1</div>
+<div class="tip" id="fs103">val r1 : Cell&lt;string * int * bool&gt;<br /><br />Full name: ResumableMonadDoc.MyResumableService.r1</div>
+<div class="tip" id="fs104">module Zero<br /><br />from ResumableMonadDoc</div>
+<div class="tip" id="fs105">val s2 : unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))<br /><br />Full name: ResumableMonadDoc.MyResumableService.s2</div>
+<div class="tip" id="fs106">val r2 : Cell&lt;string * int * bool&gt;<br /><br />Full name: ResumableMonadDoc.MyResumableService.r2</div>
+<div class="tip" id="fs107">val s3 : unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))<br /><br />Full name: ResumableMonadDoc.MyResumableService.s3</div>
+<div class="tip" id="fs108">val r3 : Cell&lt;string * int * bool&gt;<br /><br />Full name: ResumableMonadDoc.MyResumableService.r3</div>
+<div class="tip" id="fs109">val s4 : unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))<br /><br />Full name: ResumableMonadDoc.MyResumableService.s4</div>
+<div class="tip" id="fs110">val r4 : Cell&lt;string * int * bool&gt;<br /><br />Full name: ResumableMonadDoc.MyResumableService.r4</div>
+<div class="tip" id="fs111">val s5 : unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))<br /><br />Full name: ResumableMonadDoc.MyResumableService.s5</div>
+<div class="tip" id="fs112">val r5 : Cell&lt;string * int * bool&gt;<br /><br />Full name: ResumableMonadDoc.MyResumableService.r5</div>
+<div class="tip" id="fs113">val runThroughCompletion : m:(&#39;a -&gt; &#39;a * Cell&lt;&#39;b&gt;) -&gt; state:&#39;a * result:Cell&lt;&#39;b&gt; -&gt; &#39;b<br /><br />Full name: ResumableMonadDoc.runThroughCompletion</div>
+<div class="tip" id="fs114">val m : (&#39;a -&gt; &#39;a * Cell&lt;&#39;b&gt;)</div>
+<div class="tip" id="fs115">val state : &#39;a</div>
+<div class="tip" id="fs116">val result : Cell&lt;&#39;b&gt;</div>
+<div class="tip" id="fs117">val r : &#39;b</div>
+<div class="tip" id="fs118">val run : m:(&#39;a -&gt; &#39;a * Cell&lt;&#39;b&gt;) -&gt; &#39;b<br /><br />Full name: ResumableMonadDoc.run</div>
+<div class="tip" id="fs119">module MyResumableService<br /><br />from ResumableMonadDoc</div>
+<div class="tip" id="fs120">val runResumable : p:Resumable&lt;&#39;h,&#39;t&gt; -&gt; fileName:string -&gt; &#39;h * Cell&lt;&#39;t&gt;<br /><br />Full name: ResumableMonadDoc.runResumable</div>
+<div class="tip" id="fs121">val p : Resumable&lt;&#39;h,&#39;t&gt;</div>
+<div class="tip" id="fs122">val fileName : string</div>
+<div class="tip" id="fs123">val aux : (&#39;h * Cell&lt;&#39;t&gt; -&gt; &#39;h * Cell&lt;&#39;t&gt;)</div>
+<div class="tip" id="fs124">val state : &#39;h</div>
+<div class="tip" id="fs125">val result : Cell&lt;&#39;t&gt;</div>
+<div class="tip" id="fs126">namespace System.IO</div>
+<div class="tip" id="fs127">type File =<br />&#160;&#160;static member AppendAllLines : path:string * contents:IEnumerable&lt;string&gt; -&gt; unit + 1 overload<br />&#160;&#160;static member AppendAllText : path:string * contents:string -&gt; unit + 1 overload<br />&#160;&#160;static member AppendText : path:string -&gt; StreamWriter<br />&#160;&#160;static member Copy : sourceFileName:string * destFileName:string -&gt; unit + 1 overload<br />&#160;&#160;static member Create : path:string -&gt; FileStream + 3 overloads<br />&#160;&#160;static member CreateText : path:string -&gt; StreamWriter<br />&#160;&#160;static member Decrypt : path:string -&gt; unit<br />&#160;&#160;static member Delete : path:string -&gt; unit<br />&#160;&#160;static member Encrypt : path:string -&gt; unit<br />&#160;&#160;static member Exists : path:string -&gt; bool<br />&#160;&#160;...<br /><br />Full name: System.IO.File</div>
+<div class="tip" id="fs128">System.IO.File.WriteAllText(path: string, contents: string) : unit<br />System.IO.File.WriteAllText(path: string, contents: string, encoding: System.Text.Encoding) : unit</div>
+<div class="tip" id="fs129">namespace Newtonsoft</div>
+<div class="tip" id="fs130">namespace Newtonsoft.Json</div>
+<div class="tip" id="fs131">type JsonConvert =<br />&#160;&#160;static val True : string<br />&#160;&#160;static val False : string<br />&#160;&#160;static val Null : string<br />&#160;&#160;static val Undefined : string<br />&#160;&#160;static val PositiveInfinity : string<br />&#160;&#160;static val NegativeInfinity : string<br />&#160;&#160;static val NaN : string<br />&#160;&#160;static member DefaultSettings : Func&lt;JsonSerializerSettings&gt; with get, set<br />&#160;&#160;static member DeserializeAnonymousType&lt;&#39;T&gt; : value:string * anonymousTypeObject:&#39;T -&gt; &#39;T + 1 overload<br />&#160;&#160;static member DeserializeObject : value:string -&gt; obj + 7 overloads<br />&#160;&#160;...<br /><br />Full name: Newtonsoft.Json.JsonConvert</div>
+<div class="tip" id="fs132">Newtonsoft.Json.JsonConvert.SerializeObject(value: obj) : string<br />Newtonsoft.Json.JsonConvert.SerializeObject(value: obj, settings: Newtonsoft.Json.JsonSerializerSettings) : string<br />Newtonsoft.Json.JsonConvert.SerializeObject(value: obj, params converters: Newtonsoft.Json.JsonConverter []) : string<br />Newtonsoft.Json.JsonConvert.SerializeObject(value: obj, formatting: Newtonsoft.Json.Formatting) : string<br />Newtonsoft.Json.JsonConvert.SerializeObject(value: obj, formatting: Newtonsoft.Json.Formatting, settings: Newtonsoft.Json.JsonSerializerSettings) : string<br />Newtonsoft.Json.JsonConvert.SerializeObject(value: obj, type: System.Type, settings: Newtonsoft.Json.JsonSerializerSettings) : string<br />Newtonsoft.Json.JsonConvert.SerializeObject(value: obj, formatting: Newtonsoft.Json.Formatting, params converters: Newtonsoft.Json.JsonConverter []) : string<br />Newtonsoft.Json.JsonConvert.SerializeObject(value: obj, type: System.Type, formatting: Newtonsoft.Json.Formatting, settings: Newtonsoft.Json.JsonSerializerSettings) : string</div>
+<div class="tip" id="fs133">val r : &#39;t</div>
+<div class="tip" id="fs134">val initialState : &#39;h</div>
+<div class="tip" id="fs135">System.IO.File.Exists(path: string) : bool</div>
+<div class="tip" id="fs136">Newtonsoft.Json.JsonConvert.DeserializeObject&lt;&#39;T&gt;(value: string) : &#39;T<br />Newtonsoft.Json.JsonConvert.DeserializeObject(value: string) : obj<br />Newtonsoft.Json.JsonConvert.DeserializeObject&lt;&#39;T&gt;(value: string, settings: Newtonsoft.Json.JsonSerializerSettings) : &#39;T<br />Newtonsoft.Json.JsonConvert.DeserializeObject&lt;&#39;T&gt;(value: string, params converters: Newtonsoft.Json.JsonConverter []) : &#39;T<br />Newtonsoft.Json.JsonConvert.DeserializeObject(value: string, type: System.Type) : obj<br />Newtonsoft.Json.JsonConvert.DeserializeObject(value: string, settings: Newtonsoft.Json.JsonSerializerSettings) : obj<br />Newtonsoft.Json.JsonConvert.DeserializeObject(value: string, type: System.Type, settings: Newtonsoft.Json.JsonSerializerSettings) : obj<br />Newtonsoft.Json.JsonConvert.DeserializeObject(value: string, type: System.Type, params converters: Newtonsoft.Json.JsonConverter []) : obj</div>
+<div class="tip" id="fs137">System.IO.File.ReadAllText(path: string) : string<br />System.IO.File.ReadAllText(path: string, encoding: System.Text.Encoding) : string</div>
+<div class="tip" id="fs138">System.IO.File.Delete(path: string) : unit</div>
+<div class="tip" id="fs139">val p : Async&lt;(unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))) * Cell&lt;string * int * bool&gt;&gt;<br /><br />Full name: ResumableMonadDoc.p</div>
+<div class="tip" id="fs140">val async : AsyncBuilder<br /><br />Full name: Microsoft.FSharp.Core.ExtraTopLevelOperators.async</div>
+<div class="tip" id="fs141">val t : (unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))) * Cell&lt;string * int * bool&gt;<br /><br />Full name: ResumableMonadDoc.t</div>
+<div class="tip" id="fs142">Multiple items<br />type Async<br />static member AsBeginEnd : computation:(&#39;Arg -&gt; Async&lt;&#39;T&gt;) -&gt; (&#39;Arg * AsyncCallback * obj -&gt; IAsyncResult) * (IAsyncResult -&gt; &#39;T) * (IAsyncResult -&gt; unit)<br />static member AwaitEvent : event:IEvent&lt;&#39;Del,&#39;T&gt; * ?cancelAction:(unit -&gt; unit) -&gt; Async&lt;&#39;T&gt; (requires delegate and &#39;Del :&gt; Delegate)<br />static member AwaitIAsyncResult : iar:IAsyncResult * ?millisecondsTimeout:int -&gt; Async&lt;bool&gt;<br />static member AwaitTask : task:Task -&gt; Async&lt;unit&gt;<br />static member AwaitTask : task:Task&lt;&#39;T&gt; -&gt; Async&lt;&#39;T&gt;<br />static member AwaitWaitHandle : waitHandle:WaitHandle * ?millisecondsTimeout:int -&gt; Async&lt;bool&gt;<br />static member CancelDefaultToken : unit -&gt; unit<br />static member Catch : computation:Async&lt;&#39;T&gt; -&gt; Async&lt;Choice&lt;&#39;T,exn&gt;&gt;<br />static member FromBeginEnd : beginAction:(AsyncCallback * obj -&gt; IAsyncResult) * endAction:(IAsyncResult -&gt; &#39;T) * ?cancelAction:(unit -&gt; unit) -&gt; Async&lt;&#39;T&gt;<br />static member FromBeginEnd : arg:&#39;Arg1 * beginAction:(&#39;Arg1 * AsyncCallback * obj -&gt; IAsyncResult) * endAction:(IAsyncResult -&gt; &#39;T) * ?cancelAction:(unit -&gt; unit) -&gt; Async&lt;&#39;T&gt;<br />static member FromBeginEnd : arg1:&#39;Arg1 * arg2:&#39;Arg2 * beginAction:(&#39;Arg1 * &#39;Arg2 * AsyncCallback * obj -&gt; IAsyncResult) * endAction:(IAsyncResult -&gt; &#39;T) * ?cancelAction:(unit -&gt; unit) -&gt; Async&lt;&#39;T&gt;<br />static member FromBeginEnd : arg1:&#39;Arg1 * arg2:&#39;Arg2 * arg3:&#39;Arg3 * beginAction:(&#39;Arg1 * &#39;Arg2 * &#39;Arg3 * AsyncCallback * obj -&gt; IAsyncResult) * endAction:(IAsyncResult -&gt; &#39;T) * ?cancelAction:(unit -&gt; unit) -&gt; Async&lt;&#39;T&gt;<br />static member FromContinuations : callback:((&#39;T -&gt; unit) * (exn -&gt; unit) * (OperationCanceledException -&gt; unit) -&gt; unit) -&gt; Async&lt;&#39;T&gt;<br />static member Ignore : computation:Async&lt;&#39;T&gt; -&gt; Async&lt;unit&gt;<br />static member OnCancel : interruption:(unit -&gt; unit) -&gt; Async&lt;IDisposable&gt;<br />static member Parallel : computations:seq&lt;Async&lt;&#39;T&gt;&gt; -&gt; Async&lt;&#39;T []&gt;<br />static member RunSynchronously : computation:Async&lt;&#39;T&gt; * ?timeout:int * ?cancellationToken:CancellationToken -&gt; &#39;T<br />static member Sleep : millisecondsDueTime:int -&gt; Async&lt;unit&gt;<br />static member Start : computation:Async&lt;unit&gt; * ?cancellationToken:CancellationToken -&gt; unit<br />static member StartAsTask : computation:Async&lt;&#39;T&gt; * ?taskCreationOptions:TaskCreationOptions * ?cancellationToken:CancellationToken -&gt; Task&lt;&#39;T&gt;<br />static member StartChild : computation:Async&lt;&#39;T&gt; * ?millisecondsTimeout:int -&gt; Async&lt;Async&lt;&#39;T&gt;&gt;<br />static member StartChildAsTask : computation:Async&lt;&#39;T&gt; * ?taskCreationOptions:TaskCreationOptions -&gt; Async&lt;Task&lt;&#39;T&gt;&gt;<br />static member StartImmediate : computation:Async&lt;unit&gt; * ?cancellationToken:CancellationToken -&gt; unit<br />static member StartWithContinuations : computation:Async&lt;&#39;T&gt; * continuation:(&#39;T -&gt; unit) * exceptionContinuation:(exn -&gt; unit) * cancellationContinuation:(OperationCanceledException -&gt; unit) * ?cancellationToken:CancellationToken -&gt; unit<br />static member SwitchToContext : syncContext:SynchronizationContext -&gt; Async&lt;unit&gt;<br />static member SwitchToNewThread : unit -&gt; Async&lt;unit&gt;<br />static member SwitchToThreadPool : unit -&gt; Async&lt;unit&gt;<br />static member TryCancelled : computation:Async&lt;&#39;T&gt; * compensation:(OperationCanceledException -&gt; unit) -&gt; Async&lt;&#39;T&gt;<br />static member CancellationToken : Async&lt;CancellationToken&gt;<br />static member DefaultCancellationToken : CancellationToken<br /><br />Full name: Microsoft.FSharp.Control.Async<br /><br />--------------------<br />type Async&lt;&#39;T&gt;<br /><br />Full name: Microsoft.FSharp.Control.Async&lt;_&gt;</div>
+<div class="tip" id="fs143">static member Async.RunSynchronously : computation:Async&lt;&#39;T&gt; * ?timeout:int * ?cancellationToken:System.Threading.CancellationToken -&gt; &#39;T</div>
+<div class="tip" id="fs144">val t2 : (unit * Cell&lt;string&gt; * (unit * Cell&lt;int&gt; * ((unit * Cell&lt;unit&gt; * unit) * Cell&lt;bool&gt; * unit))) * Cell&lt;string * int * bool&gt;<br /><br />Full name: ResumableMonadDoc.t2</div>
+<div class="tip" id="fs145">val x : int ref<br /><br />Full name: ResumableMonadDoc.WhileTest.x</div>
+<div class="tip" id="fs146">val m2 : (unit * Cell&lt;unit&gt; * unit -&gt; (unit * Cell&lt;unit&gt; * unit) * Cell&lt;int * bool&gt;)<br /><br />Full name: ResumableMonadDoc.WhileTest.m2</div>
+<div class="tip" id="fs147">val incr : cell:int ref -&gt; unit<br /><br />Full name: Microsoft.FSharp.Core.Operators.incr</div>
+<div class="tip" id="fs148">val s1 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.WhileTest.s1</div>
+<div class="tip" id="fs149">val r1 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.WhileTest.r1</div>
+<div class="tip" id="fs150">val s2 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.WhileTest.s2</div>
+<div class="tip" id="fs151">val r2 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.WhileTest.r2</div>
+<div class="tip" id="fs152">val s3 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.WhileTest.s3</div>
+<div class="tip" id="fs153">val r3 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.WhileTest.r3</div>
+<div class="tip" id="fs154">val s4 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.WhileTest.s4</div>
+<div class="tip" id="fs155">val r4 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.WhileTest.r4</div>
+<div class="tip" id="fs156">val s5 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.WhileTest.s5</div>
+<div class="tip" id="fs157">val r5 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.WhileTest.r5</div>
+<div class="tip" id="fs158">module IfTest<br /><br />from ResumableMonadDoc</div>
+<div class="tip" id="fs159">val y : int ref<br /><br />Full name: ResumableMonadDoc.IfTest.y</div>
+<div class="tip" id="fs160">val iftest : (unit * Cell&lt;unit&gt; * unit -&gt; (unit * Cell&lt;unit&gt; * unit) * Cell&lt;int * bool&gt;)<br /><br />Full name: ResumableMonadDoc.IfTest.iftest</div>
+<div class="tip" id="fs161">val s1 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.IfTest.s1</div>
+<div class="tip" id="fs162">val r1 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.IfTest.r1</div>
+<div class="tip" id="fs163">val s2 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.IfTest.s2</div>
+<div class="tip" id="fs164">val r2 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.IfTest.r2</div>
+<div class="tip" id="fs165">val s3 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.IfTest.s3</div>
+<div class="tip" id="fs166">val r3 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.IfTest.r3</div>
+<div class="tip" id="fs167">val s4 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.IfTest.s4</div>
+<div class="tip" id="fs168">val r4 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.IfTest.r4</div>
+<div class="tip" id="fs169">val s5 : unit * Cell&lt;unit&gt; * unit<br /><br />Full name: ResumableMonadDoc.IfTest.s5</div>
+<div class="tip" id="fs170">val r5 : Cell&lt;int * bool&gt;<br /><br />Full name: ResumableMonadDoc.IfTest.r5</div>
+          
+        </div>
+        <div class="span3">
+
+          <ul class="nav nav-list" id="menu">
+            <li class="nav-header">Resumable Monad</li>
+            <li><a href="../index.html">Home page</a></li>
+            <!--
+
+              Here you can add links to other pages of the documentation 
+              The 'divider' element creates a separator and additional
+              'nav-header' can be used to add sub-headings in the menu:
+
+              * <li class="divider"></li>
+              * <li><a href="...">...</a></li>
+              * <li class="nav-header">Sub-heading</li>
+
+            -->
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="{github-link}"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_orange_ff7600.png" alt="Fork me on GitHub"></a>
+  </body>
+</html>

@@ -24,7 +24,7 @@ let doc() =
     Literate.ProcessDirectory
       (source, projTemplate, source + "\\..\\output", replacements = projInfo)
 
-    System.IO.File.Copy(source + @"\..\output\ResumableMonadDoc.html", source + @"\..\index.html", true)
+    System.IO.File.Copy(source + @"\..\output\ResumableMonadDoc.html", source + @"\..\..\index.html", true)
 
 doc()
 
