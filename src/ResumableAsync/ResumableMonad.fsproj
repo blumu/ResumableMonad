@@ -56,11 +56,7 @@
   <ItemGroup>
     <None Include="App.config" />
     <Content Include="packages.config" />
-    <Compile Include="Draft_ResumableAsync.fs" />
-    <Compile Include="Draft_WhyResumableMonad.fs" />
     <None Include="ResumableMonadDoc.fsx" />
-    <Compile Include="ResumableMonad_TripleEncoding.fs" />
-    <Compile Include="ResumableMonad_AlgebricEncoding.fs" />
     <None Include="builddoc.fsx" />
   </ItemGroup>
   <ItemGroup>

@@ -58,12 +58,12 @@ a random number representing the request ID created by the cloud VM provider.
 (**
 Last we model the cloud API that checks the status of a previously issued request.
 To simulate the processing time normally required for such operation to complete 
-we count how many times the function was calle and after 5 attempts we return 'success'.
+we count how many times the function was called and after 5 attempts we return 'success'.
 *)
     let vmRequestSucceeded =
         let waitTime = ref 0
         let rec aux requestId = 
-            printfn "checking status of request %d" requestId
+            printfn "checking status of request %d (waitTime: %d)" requestId !waitTime
             waitTime := (!waitTime + 1) % 5
             !waitTime = 0
         aux
@@ -118,7 +118,7 @@ and have the state machine logic generated for us?
 
 Here is how we would like to write it:
 *)
-(*** include:myResuambleService ***)
+(*** include:myResumableService ***)
 
 
 (**
@@ -154,7 +154,7 @@ out the implementation details... The result is deceptively simple:
 
 type ResumableBuilder() =
     member __.Zero() =
-        fun () -> (), (Result())
+        fun () -> (), (Result ())
     
     member __.Return(x:'t) =
         fun () -> (), (Result x)
@@ -365,7 +365,7 @@ The phantom type parameter of `getZeroType` is automatically inferred and the ze
 Now let's get back to our motivating example for provisioning virtual machines in the cloud:
 *)
 
-(*** define:myResuambleService ***)
+(*** define:myResumableService ***)
 module MyResumableService =
 
     let myServiceApi =
@@ -384,7 +384,7 @@ module MyResumableService =
             return machineName, requestId, vmready
         }
 
-(*** include:myResuambleService ***)
+(*** include:myResumableService ***)
 
 (** 
 Does this look familiar? The actual implementation is almost identical to the original non-resumable one. We've just 
@@ -408,6 +408,7 @@ Instead of manually calling
 the function to advance by a single step we can use the following helper to run the entire operation through completion:
 *)
 let rec runThroughCompletion m (state, result) =
+    printfn "state: %A result: %A" state result
     match result with
     | NotExecuted -> runThroughCompletion m (m state)
     | Result r -> r
@@ -489,7 +490,8 @@ let runResumable (p:Resumable<'h,'t>) fileName =
 
 
 (*** hide ***)
-System.IO.File.Delete(@"c:\temp\apiprogress.json")
+if System.IO.File.Exists @"c:\temp\apiprogress.json" then
+    System.IO.File.Delete(@"c:\temp\apiprogress.json")
 
 (**
 Now let's excute the service API and simulate a service interruption using an async timeout:
