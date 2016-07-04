@@ -1,17 +1,13 @@
 ﻿module ResumableMonad
 
-type Cell<'t> = 
-| NotExecuted
-| Result of 't
-
-type Resumable<'h,'t> = 'h -> 'h * Cell<'t>
+type Resumable<'h,'t> = 'h -> 'h * Option<'t>
 
 type ResumableBuilder() =
     member __.Zero() =
-        fun () -> (), (Result ())
+        fun () -> (), (Some ())
     
     member __.Return(x:'t) =
-        fun () -> (), (Result x)
+        fun () -> (), (Some x)
     
     member __.ReturnFrom(x) =
         x
@@ -23,23 +19,23 @@ type ResumableBuilder() =
                   f:Resumable<'u,'a>, 
                   g:'a->Resumable<'v, 'b>
            ) 
-           : Resumable<'u * Cell<'a> * 'v, 'b> = 
+           : Resumable<'u * Option<'a> * 'v, 'b> = 
         
-        fun (u: 'u, a : Cell<'a>, v : 'v) ->
+        fun (u: 'u, a : Option<'a>, v : 'v) ->
             match a with
-            | NotExecuted -> 
+            | None -> 
                 // The result of f is misssing, we thus
                 // advance f's computation by one step
                 let u_stepped, a_stepped = f u
-                (u_stepped, a_stepped, v), NotExecuted
+                (u_stepped, a_stepped, v), None
     
-            | Result _a ->
+            | Some _a ->
                 // Since f's computation has finished
                 // we advance g's computation by one step.
                 let v_stepped, b_stepped = g _a v
                 (u, a, v_stepped), b_stepped
 
-    member __.Combine(p1:Resumable<'u,unit>,p2:Resumable<'v,'b>) :Resumable<'u*Cell<unit>*'v,'b>=
+    member __.Combine(p1:Resumable<'u,unit>,p2:Resumable<'v,'b>) :Resumable<'u*Option<unit>*'v,'b>=
         __.Bind(p1, (fun () -> p2))
 
     member __.While(gd, prog:Resumable<unit,unit>) : Resumable<unit,unit> =
