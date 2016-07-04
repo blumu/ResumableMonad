@@ -58,6 +58,9 @@
     <Content Include="packages.config" />
     <None Include="ResumableMonadDoc.fsx" />
     <None Include="builddoc.fsx" />
+    <Compile Include="Zero.fs" />
+    <Compile Include="ResumableMonad.fs" />
+    <None Include="Example.fsx" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="CSharpFormat">

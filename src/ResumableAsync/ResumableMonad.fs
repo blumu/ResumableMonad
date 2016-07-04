@@ -1,92 +1,112 @@
-﻿module ResumableMonad
+﻿/// This module implements the 'multistep' implementation of the resumable monad
+/// where the resumable expression is encoded as a mapping from the trace 
+/// history type 'h to the expression's return type 't.
+///
+/// This contrasts with the implementation from the original article
+/// (ResumableMonadDoc.fsx) where the encoding type `'h -> 'h * Option<'t>`
+/// represents a state transition function mapping the existing 
+/// trace history to the update history after taking a single step in the computation.
+/// (i.e. advancing the computation to the next caching point).
+///
+/// The original encoding generates larger types but provides a clean separation
+/// between the definition of the resumable expression monad and the mechanism used 
+/// for evaluation and for caching/persistence of the trace history.
+/// 
+/// The 'mulistep' encoding, defined in the present module, generates smaller types but
+/// requires stronger coupling between the definition of the monadic constructs 
+/// and the execution and caching/persistence engine.
+module ResumableMonad.Multipstep
 
-type Resumable<'h,'t> = Resumable of ('h -> 'h * Option<'t>)
+/// Represents a resumable computation returning 
+/// a result of type `'t` with a sequence of 
+/// caching points encoded by type `'h`.
+/// - 'h is a type generated from the monadic expression to encode the history of caching points in the
+///  resumable expression. It consists of nested tuples with base elements of type 'a option for each 
+///  caching point in the computation.
+/// - 't is the returned type of the computation
+type Resumable<'h,'t> = Resumable of ('h -> 't)
+with
+    member inline R.resume h =
+        let (Resumable r) = R
+        r h
 
+    /// Returns the empty history (no caching point are initialized)
+    member inline R.initial =
+        Zero.getZeroTyped<'h>
+
+/// A resumable computation of type `'t` with no caching point.
+/// This extra type is used as a trick to match
+/// on type `'h` at compile-type using .net member overloading
+/// (Unfortunatley the static constraint `not ('h :> unit)` cannot be expressed in F#).
+//
+/// It's not theoretically needed but it helps simplify 
+/// the type encoding `'h` of caching points by eliminating
+/// unneeded occurrences of type `option unit` when occurring as part
+/// of larger resumable expressions.
+and Resumable<'t> = Spawnable of (unit -> 't)
+with
+    member inline R.resume =
+        let (Spawnable r) = R
+        r
+
+/// Return the provided value if specified otherwise evaluate the provided function
+let getOrEvaluate evaluate = function
+    | Some cached -> cached
+    | None ->
+        printfn "Cache miss: evaluating..."
+        // This is where caching/persistence needs to be implemented
+        evaluate()
+
+/// The syntax builder for the Resumable monadic syntax
 type ResumableBuilder() =
-    member __.Zero() =
-        Resumable <| fun () -> (), (Some ())
+    member __.Zero<'t>() : Resumable<_> =
+        Spawnable <| fun () -> ()
     
     member __.Return(x:'t) =
-        Resumable <| fun () -> (), (Some x)
+        Spawnable <| fun () -> x
     
-    member __.ReturnFrom(x) =
-        Resumable <| x
-    
-    member __.Delay(f) =
-        Resumable <| fun h -> let (Resumable generator) = f()
-                              generator h
-    
-    member __.Bind(
-                  (Resumable f):Resumable<'u,'a>, 
-                  g:'a->Resumable<'v, 'b>
-           ) 
-           : Resumable<'u * Option<'a> * 'v, 'b> = 
-        
-        Resumable <| fun (u: 'u, a : Option<'a>, v : 'v) ->
-            match a with
-            | None -> 
-                // The result of f is misssing, we thus
-                // advance f's computation by one step
-                let u_stepped, a_stepped = f u
-                (u_stepped, a_stepped, v), None
-    
-            | Some _a ->
-                // Since f's computation has finished
-                // we advance g's computation by one step.
-                let (Resumable gg) = g _a
-                let v_stepped, b_stepped = gg v
-                (u, a, v_stepped), b_stepped
+    member __.Delay(f: unit -> Resumable<'h,'t>) =
+        Resumable <| fun h -> f().resume h
+  
+    member __.Delay(f: unit -> Resumable<'t>) =
+        Spawnable <| fun () -> f().resume ()
 
-    member __.Combine(p1:Resumable<'u,unit>, p2:Resumable<'v,'b>) :Resumable<'u*Option<unit>*'v,'b>=
-        __.Bind(p1, (fun () -> p2))
+    // Resumable<'u,'a> -> ('a->Resumable<'v, 'b>) -> Resumable<'a option * 'u * 'v, 'b>
+    member inline __.Bind(f:Resumable<'u,'a>, g:'a->Resumable<'v, 'b>) =
+        Resumable <| fun (cached, u, v) -> (cached |> getOrEvaluate (fun () -> f.resume u) |> g).resume v
+    
+    // Resumable<'u,'a> -> ('a->Resumable<'b>) -> Resumable<'a option * 'u, 'b>
+    member inline __.Bind(f:Resumable<'u,'a>, g:'a->Resumable<'b>) =
+        Resumable <| fun (cached, u) -> (cached |> getOrEvaluate (fun () -> f.resume u) |> g).resume()
 
-    member __.While(gd, (Resumable prog):Resumable<unit,unit>) : Resumable<unit,unit> =
-        let rec whileA gd prog =
-            if not <| gd() then
-                __.Zero()
-            else 
-                Resumable <| fun u -> prog u
+    // Resumable<'a> -> ('a->Resumable<'v, 'b>) -> Resumable<'a option * 'v, 'b> =
+    member inline __.Bind(f:Resumable<'a>, g:'a->Resumable<'v, 'b>) =
+        Resumable <| fun (cached, v) -> (cached |> getOrEvaluate f.resume |> g).resume v
+
+    // Resumable<'a> -> ('a->Resumable<'b>) -> Resumable<'a option, 'b> =
+    member inline __.Bind(f:Resumable<'a>, g:'a->Resumable<'b>) =
+        Resumable <| fun cached -> (cached |> getOrEvaluate f.resume |> g).resume()
+
+    // Resumable<'a> -> ('a->Resumable<'b>) -> Resumable<'b>
+    member inline __.BindNoCache(f:Resumable<'a>, g:'a->Resumable<'b>) =
+        Spawnable <| fun () -> (g <| f.resume()).resume()
+
+    // Resumable<'u,unit> -> Resumable<'v,'b> -> Resumable<'u * 'v,'b>
+    member inline __.Combine(p1:Resumable<'u,unit>, p2:Resumable<'v,'b>) =
+        Resumable <| fun (u, v) -> p1.resume u; p2.resume v
+
+    // Resumable<unit> -> Resumable<'b> -> Resumable<'b>
+    member inline __.Combine(p1:Resumable<unit>, p2:Resumable<'b>) =
+        Spawnable <| fun () -> p1.resume(); p2.resume()
    
-        whileA gd prog
-
+    member __.While(condition, body:Resumable<unit>) : Resumable<unit> =
+        if condition() then
+            __.BindNoCache(body, (fun () -> __.While(condition, body)))
+        else
+            __.Zero()
+        
 (**
-
-The idea in the above definition is to decompose a trace of execution as a triple of the form `(u,a,v)`:
-
-- The `u` part represents a prefix of the trace.
-- The `a` part represents the cell in context.
-- The `v` part represents the suffix of the trace, that is the result returned at each 
-resumable control point following the cell in context.
-
-I've tried several other encodings before I came up with this one.
-It may seem more obvious for instance to encode traces with pairs of the form 
-`(prefix,last)` where `prefix` is the list of past executed operations and `last` represents the 
-last operation to execute. Unfortunately defining monadic operators based on such encodings becomes 
-an insurmountable task. The triple decomposition turns out to be necessary to deal with compositionality in the 
-implementation of the `Bind` monadic operator.
-
-> A much better encoding would be to define the trace as a heterogeneous list
-> of elements but the fairly limited type system provided by F# (compared to Haskell for instance) prevents you from doing that. You
-> would have to give up type safety and define your trace as an array of `obj` and appeal to .Net reflection 
-> to make this all work. Of course I am not willing to give up type safety so I did not even go there...
-
-*)
-
-(**
-We can now define syntactic sugar in F# for the monadic operators above defined: 
-
+We now define the computational expression `resumable { ... }` with all
+the syntactic sugar automatically inferred from the above monadic operators. 
 *)
 let resumable = new ResumableBuilder()
-
-
-(** 
-Let's make use of it on a simple example first: a computation that creates the pair `(1,2)` in two resumable steps:
-
-*)
-
-module Example =
-    let example = resumable {
-        let! x = resumable { return 1 }
-        let! y = resumable { return 2 }
-        return x, y
-    }
