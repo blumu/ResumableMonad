@@ -1,27 +1,28 @@
 ﻿module ResumableMonad
 
-type Resumable<'h,'t> = 'h -> 'h * Option<'t>
+type Resumable<'h,'t> = Resumable of ('h -> 'h * Option<'t>)
 
 type ResumableBuilder() =
     member __.Zero() =
-        fun () -> (), (Some ())
+        Resumable <| fun () -> (), (Some ())
     
     member __.Return(x:'t) =
-        fun () -> (), (Some x)
+        Resumable <| fun () -> (), (Some x)
     
     member __.ReturnFrom(x) =
-        x
+        Resumable <| x
     
-    member __.Delay(generator:unit->Resumable<'u,'a>) =
-        fun h -> generator() h
+    member __.Delay(f) =
+        Resumable <| fun h -> let (Resumable generator) = f()
+                              generator h
     
     member __.Bind(
-                  f:Resumable<'u,'a>, 
+                  (Resumable f):Resumable<'u,'a>, 
                   g:'a->Resumable<'v, 'b>
            ) 
            : Resumable<'u * Option<'a> * 'v, 'b> = 
         
-        fun (u: 'u, a : Option<'a>, v : 'v) ->
+        Resumable <| fun (u: 'u, a : Option<'a>, v : 'v) ->
             match a with
             | None -> 
                 // The result of f is misssing, we thus
@@ -32,18 +33,19 @@ type ResumableBuilder() =
             | Some _a ->
                 // Since f's computation has finished
                 // we advance g's computation by one step.
-                let v_stepped, b_stepped = g _a v
+                let (Resumable gg) = g _a
+                let v_stepped, b_stepped = gg v
                 (u, a, v_stepped), b_stepped
 
-    member __.Combine(p1:Resumable<'u,unit>,p2:Resumable<'v,'b>) :Resumable<'u*Option<unit>*'v,'b>=
+    member __.Combine(p1:Resumable<'u,unit>, p2:Resumable<'v,'b>) :Resumable<'u*Option<unit>*'v,'b>=
         __.Bind(p1, (fun () -> p2))
 
-    member __.While(gd, prog:Resumable<unit,unit>) : Resumable<unit,unit> =
+    member __.While(gd, (Resumable prog):Resumable<unit,unit>) : Resumable<unit,unit> =
         let rec whileA gd prog =
             if not <| gd() then
                 __.Zero()
             else 
-                fun u -> prog u
+                Resumable <| fun u -> prog u
    
         whileA gd prog
 
