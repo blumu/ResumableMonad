@@ -1,0 +1,17 @@
+// Warning: generated file; your changes could be lost when a new file is generated.
+#I __SOURCE_DIRECTORY__
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/CSharpFormat.dll"
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/FSharp.CodeFormat.dll"
+#r "../../packages/FSharp.Compiler.Service.0.0.90/lib/net45/FSharp.Compiler.Service.dll"
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/FSharp.Formatting.Common.dll"
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/FSharp.Literate.dll"
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/FSharp.Markdown.dll"
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/FSharp.MetadataFormat.dll"
+#r "../../packages/FSharpVSPowerTools.Core.1.9.0/lib/net45/FSharpVSPowerTools.Core.dll"
+#r "../../../packages/Microsoft.FSharpLu.Json/lib/net452/Microsoft.FSharpLu.Json.dll"
+#r "../../../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/RazorEngine.dll"
+#r "System.Core.dll"
+#r "System.dll"
+#r "System.Numerics.dll"
+#r "../../packages/FSharp.Formatting.2.11.0/lib/net40/System.Web.Razor.dll"

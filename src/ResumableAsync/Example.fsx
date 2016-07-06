@@ -1,15 +1,15 @@
 ﻿module Example
 
 #load "Zero.fs"
-#load "ResumableMonad.fs"
+#load "ResumableMonad.Multistep.fs"
 open Zero
 open ResumableMonad.Multipstep
 
 let x1 = resumable { return 1 }
 
 let x2 = resumable {
-    let! y = x1 
-    return y 
+    let! y = x1
+    return y
 }
 
 let example = resumable {
@@ -41,7 +41,7 @@ module WhileTest =
             while !x<3 do
                 printfn "x = %d" !x
                 incr x
-            printfn "end" 
+            printfn "end"
             return !x , true
         }
 
@@ -53,7 +53,7 @@ module WhileTest2 =
         resumable {
             printfn "Start m2"
             let! z, f = WhileTest.m
-            printfn "end m2" 
+            printfn "end m2"
             return z+ 100
         }
 
@@ -87,13 +87,13 @@ module MyResumableService =
     For simplicity here we will assume it's just a machine name.
     *)
 
-        let getMachineName () = 
+        let getMachineName () =
             printfn "Enter name of machine: "
             let machineName = System.Console.ReadLine()
             machineName
 
     (**
-    Now let's define a simple model of the cloud service API used to 
+    Now let's define a simple model of the cloud service API used to
     provision new virtual machines. The function below is just a mockup for the real API: it returns
     a random number representing the request ID created by the cloud VM provider.
     *)
@@ -105,12 +105,12 @@ module MyResumableService =
 
     (**
     Last we model the cloud API that checks the status of a previously issued request.
-    To simulate the processing time normally required for such operation to complete 
+    To simulate the processing time normally required for such operation to complete
     we count how many times the function was called and after 5 attempts we return 'success'.
     *)
         let vmRequestSucceeded =
             let waitTime = ref 0
-            let rec aux requestId = 
+            let rec aux requestId =
                 printfn "checking status of request %d (waitTime: %d)" requestId !waitTime
                 waitTime := (!waitTime + 1) % 5
                 !waitTime = 0
@@ -121,7 +121,7 @@ module MyResumableService =
             let! machineName = resumable { return Environment.getMachineName () }
             let! requestId = resumable { return Environment.provisionVM machineName }
 
-            let! vmready = resumable { 
+            let! vmready = resumable {
                 while not <| Environment.vmRequestSucceeded requestId do
                     printfn "Waiting for cloud request to complete..."
                     System.Threading.Thread.Sleep(1000)
@@ -133,5 +133,5 @@ module MyResumableService =
         }
 
     myServiceApi.resume <| myServiceApi.initial
-    
+
 

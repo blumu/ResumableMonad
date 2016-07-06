@@ -59,8 +59,11 @@
     <None Include="ResumableMonadDoc.fsx" />
     <None Include="builddoc.fsx" />
     <Compile Include="Zero.fs" />
-    <Compile Include="ResumableMonad.fs" />
+    <Compile Include="ResumableMonad.Multistep.Serialized.fs" />
     <None Include="Example.fsx" />
+    <Compile Include="ResumableMonad.Multistep.fs" />
+    <None Include="Scripts\load-references-debug.fsx" />
+    <None Include="Scripts\load-project-debug.fsx" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
