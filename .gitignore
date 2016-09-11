@@ -1,0 +1,3 @@
+packages/*
+.paket/paket.bootstrapper.exe
+paket.exe

@@ -1,9 +1,9 @@
-﻿#load @"../packages/FSharp.Formatting.2.11.0/FSharp.Formatting.fsx"
+﻿#load @"../../packages/FSharp.Formatting/FSharp.Formatting.fsx"
 open FSharp.Literate
 open System.IO
 
 let source = __SOURCE_DIRECTORY__
-let template = Path.Combine(source, @"..\packages\FSharp.Formatting.2.11.0\literate\templates\template-project.html")
+let template = Path.Combine(source, @"..\..\packages\FSharp.Formatting\literate\templates\template-project.html")
 
 
 //let script = Path.Combine(source, "MonadicReplayPairHistory.fs")
@@ -18,7 +18,8 @@ let doc() =
     let projInfo =
       [ "page-description", "Resumable monad with F#"
         "page-author", "William Blum"
-        "project-name", "Resumable Monad" ]
+        "project-name", "Resumable Monad"
+        "github-link", "https://github.com/blumu/ResumableMonad/" ]
 
     // Process all files and save results to 'output' directory
     Literate.ProcessDirectory
