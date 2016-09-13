@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <!--
+      The The persisted multistep resumable monad
+ parameters will be replaced with the
+      document title extracted from the <h1> element or
+      file name, if there is no <h1> heading
+    -->
+    <title>The persisted multistep resumable monad
+</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Resumable monad with F#">
+    <meta name="author" content="William Blum">
+    <script src="http://code.jquery.com/jquery-1.8.0.js"></script>
+    <script src="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link href="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet">
+    <link type="text/css" rel="stylesheet" href="content/style.css" />
+    <script src="content/tips.js" type="text/javascript"></script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fsharp.org">fsharp.org</a></li>
+          <li><a href="https://github.com/blumu/ResumableMonad/">github page</a></li>
+        </ul>
+        <h3 class="muted">Resumable Monad</h3>
+      </div>
+      <hr />
+      <div class="row">
+        <div class="span9" id="main">
+          <h1>The persisted multistep resumable monad</h1>
+<p>This module implements the persisted &amp; multistep implementation of the
+resumable monad.
+Multistep means that the where the resumable expression is encoded as
+a mapping from the trace history type 'h to the expression's return type 't
+as opposed to a single step semantics (<code>'h -&gt; 'h * Option&lt;'t&gt;</code>).
+Persisted means that the trace of caching points is persisted to some external storage device
+as the computation progresses. If the computation is interrupted for any external reason (e.g., machine shuts down, process killed, machine upgraded, ...)
+then the computation can be resumed from the persisted stated and resume from the last evaluated caching point.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">  1: </span>
+<span class="l">  2: </span>
+<span class="l">  3: </span>
+<span class="l">  4: </span>
+<span class="l">  5: </span>
+<span class="l">  6: </span>
+<span class="l">  7: </span>
+<span class="l">  8: </span>
+<span class="l">  9: </span>
+<span class="l"> 10: </span>
+<span class="l"> 11: </span>
+<span class="l"> 12: </span>
+<span class="l"> 13: </span>
+<span class="l"> 14: </span>
+<span class="l"> 15: </span>
+<span class="l"> 16: </span>
+<span class="l"> 17: </span>
+<span class="l"> 18: </span>
+<span class="l"> 19: </span>
+<span class="l"> 20: </span>
+<span class="l"> 21: </span>
+<span class="l"> 22: </span>
+<span class="l"> 23: </span>
+<span class="l"> 24: </span>
+<span class="l"> 25: </span>
+<span class="l"> 26: </span>
+<span class="l"> 27: </span>
+<span class="l"> 28: </span>
+<span class="l"> 29: </span>
+<span class="l"> 30: </span>
+<span class="l"> 31: </span>
+<span class="l"> 32: </span>
+<span class="l"> 33: </span>
+<span class="l"> 34: </span>
+<span class="l"> 35: </span>
+<span class="l"> 36: </span>
+<span class="l"> 37: </span>
+<span class="l"> 38: </span>
+<span class="l"> 39: </span>
+<span class="l"> 40: </span>
+<span class="l"> 41: </span>
+<span class="l"> 42: </span>
+<span class="l"> 43: </span>
+<span class="l"> 44: </span>
+<span class="l"> 45: </span>
+<span class="l"> 46: </span>
+<span class="l"> 47: </span>
+<span class="l"> 48: </span>
+<span class="l"> 49: </span>
+<span class="l"> 50: </span>
+<span class="l"> 51: </span>
+<span class="l"> 52: </span>
+<span class="l"> 53: </span>
+<span class="l"> 54: </span>
+<span class="l"> 55: </span>
+<span class="l"> 56: </span>
+<span class="l"> 57: </span>
+<span class="l"> 58: </span>
+<span class="l"> 59: </span>
+<span class="l"> 60: </span>
+<span class="l"> 61: </span>
+<span class="l"> 62: </span>
+<span class="l"> 63: </span>
+<span class="l"> 64: </span>
+<span class="l"> 65: </span>
+<span class="l"> 66: </span>
+<span class="l"> 67: </span>
+<span class="l"> 68: </span>
+<span class="l"> 69: </span>
+<span class="l"> 70: </span>
+<span class="l"> 71: </span>
+<span class="l"> 72: </span>
+<span class="l"> 73: </span>
+<span class="l"> 74: </span>
+<span class="l"> 75: </span>
+<span class="l"> 76: </span>
+<span class="l"> 77: </span>
+<span class="l"> 78: </span>
+<span class="l"> 79: </span>
+<span class="l"> 80: </span>
+<span class="l"> 81: </span>
+<span class="l"> 82: </span>
+<span class="l"> 83: </span>
+<span class="l"> 84: </span>
+<span class="l"> 85: </span>
+<span class="l"> 86: </span>
+<span class="l"> 87: </span>
+<span class="l"> 88: </span>
+<span class="l"> 89: </span>
+<span class="l"> 90: </span>
+<span class="l"> 91: </span>
+<span class="l"> 92: </span>
+<span class="l"> 93: </span>
+<span class="l"> 94: </span>
+<span class="l"> 95: </span>
+<span class="l"> 96: </span>
+<span class="l"> 97: </span>
+<span class="l"> 98: </span>
+<span class="l"> 99: </span>
+<span class="l">100: </span>
+<span class="l">101: </span>
+<span class="l">102: </span>
+<span class="l">103: </span>
+<span class="l">104: </span>
+<span class="l">105: </span>
+<span class="l">106: </span>
+<span class="l">107: </span>
+<span class="l">108: </span>
+<span class="l">109: </span>
+<span class="l">110: </span>
+<span class="l">111: </span>
+<span class="l">112: </span>
+<span class="l">113: </span>
+<span class="l">114: </span>
+<span class="l">115: </span>
+<span class="l">116: </span>
+<span class="l">117: </span>
+<span class="l">118: </span>
+<span class="l">119: </span>
+<span class="l">120: </span>
+<span class="l">121: </span>
+<span class="l">122: </span>
+<span class="l">123: </span>
+<span class="l">124: </span>
+<span class="l">125: </span>
+<span class="l">126: </span>
+<span class="l">127: </span>
+<span class="l">128: </span>
+<span class="l">129: </span>
+<span class="l">130: </span>
+<span class="l">131: </span>
+<span class="l">132: </span>
+<span class="l">133: </span>
+<span class="l">134: </span>
+<span class="l">135: </span>
+<span class="l">136: </span>
+<span class="l">137: </span>
+<span class="l">138: </span>
+<span class="l">139: </span>
+<span class="l">140: </span>
+<span class="l">141: </span>
+<span class="l">142: </span>
+<span class="l">143: </span>
+<span class="l">144: </span>
+<span class="l">145: </span>
+<span class="l">146: </span>
+<span class="l">147: </span>
+<span class="l">148: </span>
+<span class="l">149: </span>
+<span class="l">150: </span>
+<span class="l">151: </span>
+<span class="l">152: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="c">/// Persisted implementation of the multistep resumable monad.</span>
+<span class="k">module</span> <span onmouseout="hideTip(event, 'fs1', 1)" onmouseover="showTip(event, 'fs1', 1)" class="i">ResumableMonad</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs2', 2)" onmouseover="showTip(event, 'fs2', 2)" class="t">MultipstepPersisted</span>
+
+<span class="prep">#if</span> <span class="i">INTERACTIVE</span>
+<span class="inactive">#load</span><span class="inactive"> </span><span class="inactive">&quot;zero.fs&quot;</span>
+<span class="inactive">#load</span><span class="inactive"> </span><span class="inactive">&quot;Scripts\load-references-debug.fsx&quot;</span>
+<span class="prep">#endif</span>
+
+
+<span class="c">/// Defines a method to persist a trace history (i.e. caching points) to some external device</span>
+<span class="k">type</span> <span onmouseout="hideTip(event, 'fs3', 3)" onmouseover="showTip(event, 'fs3', 3)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span> <span class="o">=</span> <span class="o">&#39;</span><span class="i">h</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs4', 4)" onmouseover="showTip(event, 'fs4', 4)" class="t">unit</span>
+
+<span class="c">/// Defines the functions to load/save the caching points to some external storage</span>
+<span class="k">type</span> <span onmouseout="hideTip(event, 'fs5', 5)" onmouseover="showTip(event, 'fs5', 5)" class="t">CacheStorage</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span> <span class="o">=</span>
+    {
+        <span onmouseout="hideTip(event, 'fs6', 6)" onmouseover="showTip(event, 'fs6', 6)" class="i">save</span> <span class="o">:</span> <span onmouseout="hideTip(event, 'fs3', 7)" onmouseover="showTip(event, 'fs3', 7)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs7', 8)" onmouseover="showTip(event, 'fs7', 8)" class="i">load</span> <span class="o">:</span> <span onmouseout="hideTip(event, 'fs4', 9)" onmouseover="showTip(event, 'fs4', 9)" class="t">unit</span> <span class="k">-&gt;</span> <span class="o">&#39;</span><span class="i">h</span> <span onmouseout="hideTip(event, 'fs8', 10)" onmouseover="showTip(event, 'fs8', 10)" class="t">option</span>
+    }
+
+<span class="c">/// A resumable computation of type `&#39;t` with caching points history of type `&#39;h`.</span>
+<span class="c">/// - `&#39;t` is the returned type of the computation</span>
+<span class="c">/// - type `&#39;h` is inferred from the monadic expression and encodes the history of caching points in the</span>
+<span class="c">///  resumable expression. The hierachy of caching points is encoded with nested tuples, the leaf elements in the</span>
+<span class="c">///  hiearachy are of type `&#39;a option` and represent the caching points themselves.</span>
+<span class="k">type</span> <span onmouseout="hideTip(event, 'fs9', 11)" onmouseover="showTip(event, 'fs9', 11)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span>,<span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs9', 12)" onmouseover="showTip(event, 'fs9', 12)" class="p">Resumable</span> <span class="k">of</span> (<span onmouseout="hideTip(event, 'fs3', 13)" onmouseover="showTip(event, 'fs3', 13)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span> <span class="k">-&gt;</span> <span class="o">&#39;</span><span class="i">h</span> <span class="k">-&gt;</span> <span class="o">&#39;</span><span class="i">t</span>)
+<span class="k">with</span>
+    <span class="c">/// Resume from a specified history of caching points</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs10', 14)" onmouseover="showTip(event, 'fs10', 14)" class="i">R</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs11', 15)" onmouseover="showTip(event, 'fs11', 15)" class="f">resume</span> (<span onmouseout="hideTip(event, 'fs12', 16)" onmouseover="showTip(event, 'fs12', 16)" class="f">persist</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 17)" onmouseover="showTip(event, 'fs3', 17)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs13', 18)" onmouseover="showTip(event, 'fs13', 18)" class="i">h</span><span class="o">:</span><span class="o">&#39;</span><span class="i">h</span>) <span class="o">=</span>
+        <span class="k">let</span> (<span onmouseout="hideTip(event, 'fs9', 19)" onmouseover="showTip(event, 'fs9', 19)" class="p">Resumable</span> <span onmouseout="hideTip(event, 'fs14', 20)" onmouseover="showTip(event, 'fs14', 20)" class="f">r</span>) <span class="o">=</span> <span onmouseout="hideTip(event, 'fs10', 21)" onmouseover="showTip(event, 'fs10', 21)" class="i">R</span>
+        <span onmouseout="hideTip(event, 'fs14', 22)" onmouseover="showTip(event, 'fs14', 22)" class="f">r</span> <span onmouseout="hideTip(event, 'fs12', 23)" onmouseover="showTip(event, 'fs12', 23)" class="f">persist</span> <span onmouseout="hideTip(event, 'fs13', 24)" onmouseover="showTip(event, 'fs13', 24)" class="i">h</span>
+
+    <span class="c">/// Returns the empty history (i.e. no caching point)</span>
+    <span class="k">member</span> <span class="k">inline</span> <span class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs15', 25)" onmouseover="showTip(event, 'fs15', 25)" class="i">initial</span> <span class="o">=</span>
+        <span class="i">Zero</span><span class="o">.</span><span class="i">getZeroTyped</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>
+
+    <span class="c">/// Evaluate the resumable expression starting</span>
+    <span class="c">/// from the saved history of cached points if it exists,</span>
+    <span class="c">/// or from the empty history otherwise</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs10', 26)" onmouseover="showTip(event, 'fs10', 26)" class="i">R</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs16', 27)" onmouseover="showTip(event, 'fs16', 27)" class="f">evaluate</span> (<span onmouseout="hideTip(event, 'fs17', 28)" onmouseover="showTip(event, 'fs17', 28)" class="i">storage</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs5', 29)" onmouseover="showTip(event, 'fs5', 29)" class="t">CacheStorage</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span class="k">let</span> (<span onmouseout="hideTip(event, 'fs9', 30)" onmouseover="showTip(event, 'fs9', 30)" class="p">Resumable</span> <span onmouseout="hideTip(event, 'fs18', 31)" onmouseover="showTip(event, 'fs18', 31)" class="f">resume</span>) <span class="o">=</span> <span onmouseout="hideTip(event, 'fs10', 32)" onmouseover="showTip(event, 'fs10', 32)" class="i">R</span>
+        <span onmouseout="hideTip(event, 'fs19', 33)" onmouseover="showTip(event, 'fs19', 33)" class="f">printfn</span> <span class="s">&quot;State type is </span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs20', 34)" onmouseover="showTip(event, 'fs20', 34)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs21', 35)" onmouseover="showTip(event, 'fs21', 35)" class="i">state</span> <span class="o">=</span>
+            <span class="k">match</span> <span onmouseout="hideTip(event, 'fs17', 36)" onmouseover="showTip(event, 'fs17', 36)" class="i">storage</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs7', 37)" onmouseover="showTip(event, 'fs7', 37)" class="i">load</span>() <span class="k">with</span>
+            | <span onmouseout="hideTip(event, 'fs22', 38)" onmouseover="showTip(event, 'fs22', 38)" class="p">None</span> <span class="k">-&gt;</span>
+                <span onmouseout="hideTip(event, 'fs19', 39)" onmouseover="showTip(event, 'fs19', 39)" class="f">printfn</span> <span class="s">&quot;No cached state in storage: starting from initial state&quot;</span>
+                <span onmouseout="hideTip(event, 'fs10', 40)" onmouseover="showTip(event, 'fs10', 40)" class="i">R</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs23', 41)" onmouseover="showTip(event, 'fs23', 41)" class="i">initial</span>
+            | <span onmouseout="hideTip(event, 'fs24', 42)" onmouseover="showTip(event, 'fs24', 42)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs21', 43)" onmouseover="showTip(event, 'fs21', 43)" class="i">state</span> <span class="k">-&gt;</span>
+                <span onmouseout="hideTip(event, 'fs19', 44)" onmouseover="showTip(event, 'fs19', 44)" class="f">printfn</span> <span class="s">&quot;Resuming from existing cached state&quot;</span>
+                <span onmouseout="hideTip(event, 'fs21', 45)" onmouseover="showTip(event, 'fs21', 45)" class="i">state</span>
+
+        <span onmouseout="hideTip(event, 'fs18', 46)" onmouseover="showTip(event, 'fs18', 46)" class="f">resume</span> <span onmouseout="hideTip(event, 'fs17', 47)" onmouseover="showTip(event, 'fs17', 47)" class="i">storage</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs6', 48)" onmouseover="showTip(event, 'fs6', 48)" class="i">save</span> <span onmouseout="hideTip(event, 'fs21', 49)" onmouseover="showTip(event, 'fs21', 49)" class="i">state</span>
+
+<span class="c">/// A resumable computation of type `&#39;t` with no caching point.</span>
+<span class="c">/// This extra type is used as a trick to match</span>
+<span class="c">/// on type `&#39;h` at compile-type using .net member overloading</span>
+<span class="c">/// (since unfortunatley the static constraint `not (&#39;h :&gt; unit)` cannot be expressed in F#).</span>
+<span class="c">//</span>
+<span class="c">/// It&#39;s not theoretically needed but it helps simplify</span>
+<span class="c">/// the type encoding `&#39;h` of caching points by eliminating</span>
+<span class="c">/// redundant occurrences of `option unit` within</span>
+<span class="c">/// larger resumable expressions.</span>
+<span class="k">and</span> <span onmouseout="hideTip(event, 'fs9', 50)" onmouseover="showTip(event, 'fs9', 50)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs25', 51)" onmouseover="showTip(event, 'fs25', 51)" class="p">Startable</span> <span class="k">of</span> (<span onmouseout="hideTip(event, 'fs4', 52)" onmouseover="showTip(event, 'fs4', 52)" class="t">unit</span> <span class="k">-&gt;</span> <span class="o">&#39;</span><span class="i">t</span>)
+<span class="k">with</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs26', 53)" onmouseover="showTip(event, 'fs26', 53)" class="i">R</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs27', 54)" onmouseover="showTip(event, 'fs27', 54)" class="f">resume</span> () <span class="o">=</span>
+        <span class="k">let</span> (<span onmouseout="hideTip(event, 'fs25', 55)" onmouseover="showTip(event, 'fs25', 55)" class="p">Startable</span> <span onmouseout="hideTip(event, 'fs28', 56)" onmouseover="showTip(event, 'fs28', 56)" class="f">r</span>) <span class="o">=</span> <span onmouseout="hideTip(event, 'fs26', 57)" onmouseover="showTip(event, 'fs26', 57)" class="i">R</span>
+        <span onmouseout="hideTip(event, 'fs28', 58)" onmouseover="showTip(event, 'fs28', 58)" class="f">r</span> ()
+
+<span class="c">/// Return the provided value if specified otherwise evaluate the provided function</span>
+<span class="c">/// and persist the result to the external storage device</span>
+<span class="k">let</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs29', 59)" onmouseover="showTip(event, 'fs29', 59)" class="f">getOrEvaluate</span> (<span onmouseout="hideTip(event, 'fs30', 60)" onmouseover="showTip(event, 'fs30', 60)" class="f">persist</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 61)" onmouseover="showTip(event, 'fs3', 61)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs31', 62)" onmouseover="showTip(event, 'fs31', 62)" class="f">evaluate</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs4', 63)" onmouseover="showTip(event, 'fs4', 63)" class="t">unit</span> <span class="k">-&gt;</span> <span class="o">&#39;</span><span class="i">a</span>) <span class="o">=</span> <span class="k">function</span>
+    | <span onmouseout="hideTip(event, 'fs24', 64)" onmouseover="showTip(event, 'fs24', 64)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs32', 65)" onmouseover="showTip(event, 'fs32', 65)" class="i">cached</span> <span class="k">-&gt;</span>
+        <span onmouseout="hideTip(event, 'fs19', 66)" onmouseover="showTip(event, 'fs19', 66)" class="f">printfn</span> <span class="s">&quot;Reusing cached value: </span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs32', 67)" onmouseover="showTip(event, 'fs32', 67)" class="i">cached</span>
+        <span onmouseout="hideTip(event, 'fs32', 68)" onmouseover="showTip(event, 'fs32', 68)" class="i">cached</span>
+    | <span onmouseout="hideTip(event, 'fs22', 69)" onmouseover="showTip(event, 'fs22', 69)" class="p">None</span> <span class="k">-&gt;</span>
+        <span onmouseout="hideTip(event, 'fs19', 70)" onmouseover="showTip(event, 'fs19', 70)" class="f">printfn</span> <span class="s">&quot;Cache miss: evaluating resumable expression...&quot;</span>
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs33', 71)" onmouseover="showTip(event, 'fs33', 71)" class="i">r</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs31', 72)" onmouseover="showTip(event, 'fs31', 72)" class="f">evaluate</span>()
+        <span onmouseout="hideTip(event, 'fs19', 73)" onmouseover="showTip(event, 'fs19', 73)" class="f">printfn</span> <span class="s">&quot;Persisting result to cache: </span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs33', 74)" onmouseover="showTip(event, 'fs33', 74)" class="i">r</span>
+        <span onmouseout="hideTip(event, 'fs30', 75)" onmouseover="showTip(event, 'fs30', 75)" class="f">persist</span> <span onmouseout="hideTip(event, 'fs33', 76)" onmouseover="showTip(event, 'fs33', 76)" class="i">r</span>
+        <span onmouseout="hideTip(event, 'fs33', 77)" onmouseover="showTip(event, 'fs33', 77)" class="i">r</span>
+
+<span class="c">/// Return a persist function that applies a transformation and then falls back to the specified persist function</span>
+<span class="k">let</span> <span class="k">inline</span> (<span class="o">+~</span>) (<span onmouseout="hideTip(event, 'fs12', 78)" onmouseover="showTip(event, 'fs12', 78)" class="f">persist</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 79)" onmouseover="showTip(event, 'fs3', 79)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs34', 80)" onmouseover="showTip(event, 'fs34', 80)" class="f">cons</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span><span class="k">-&gt;</span><span class="o">&#39;</span><span class="i">h</span>) <span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 81)" onmouseover="showTip(event, 'fs3', 81)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs34', 82)" onmouseover="showTip(event, 'fs34', 82)" class="f">cons</span> <span class="o">&gt;</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs12', 83)" onmouseover="showTip(event, 'fs12', 83)" class="f">persist</span>
+
+<span class="c">/// The syntax builder for the Resumable monadic syntax</span>
+<span class="k">type</span> <span onmouseout="hideTip(event, 'fs35', 84)" onmouseover="showTip(event, 'fs35', 84)" class="t">ResumableBuilder</span>() <span class="o">=</span>
+
+    <span class="k">member</span> <span class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs36', 85)" onmouseover="showTip(event, 'fs36', 85)" class="f">Zero</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span>() <span class="o">:</span> <span onmouseout="hideTip(event, 'fs9', 86)" onmouseover="showTip(event, 'fs9', 86)" class="t">Resumable</span><span class="o">&lt;</span>_<span class="o">&gt;</span> <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs25', 87)" onmouseover="showTip(event, 'fs25', 87)" class="p">Startable</span> <span class="o">&lt;|</span> <span class="k">fun</span> () <span class="k">-&gt;</span> ()
+
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs37', 88)" onmouseover="showTip(event, 'fs37', 88)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs38', 89)" onmouseover="showTip(event, 'fs38', 89)" class="f">Return</span>(<span onmouseout="hideTip(event, 'fs39', 90)" onmouseover="showTip(event, 'fs39', 90)" class="i">x</span><span class="o">:</span><span class="o">&#39;</span><span class="i">t</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs25', 91)" onmouseover="showTip(event, 'fs25', 91)" class="p">Startable</span> <span class="o">&lt;|</span> <span class="k">fun</span> () <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs39', 92)" onmouseover="showTip(event, 'fs39', 92)" class="i">x</span>
+
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs37', 93)" onmouseover="showTip(event, 'fs37', 93)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs40', 94)" onmouseover="showTip(event, 'fs40', 94)" class="f">Delay</span>(<span onmouseout="hideTip(event, 'fs41', 95)" onmouseover="showTip(event, 'fs41', 95)" class="f">f</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs4', 96)" onmouseover="showTip(event, 'fs4', 96)" class="t">unit</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs9', 97)" onmouseover="showTip(event, 'fs9', 97)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span>,<span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 98)" onmouseover="showTip(event, 'fs19', 98)" class="f">printfn</span> <span class="s">&quot;===Delay&quot;</span>
+        <span onmouseout="hideTip(event, 'fs9', 99)" onmouseover="showTip(event, 'fs9', 99)" class="p">Resumable</span> <span class="o">&lt;|</span> (<span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs42', 100)" onmouseover="showTip(event, 'fs42', 100)" class="f">p</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 101)" onmouseover="showTip(event, 'fs3', 101)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">h</span><span class="o">&gt;</span>) <span onmouseout="hideTip(event, 'fs13', 102)" onmouseover="showTip(event, 'fs13', 102)" class="i">h</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs41', 103)" onmouseover="showTip(event, 'fs41', 103)" class="f">f</span>()<span class="o">.</span><span class="f">resume</span> <span onmouseout="hideTip(event, 'fs42', 104)" onmouseover="showTip(event, 'fs42', 104)" class="f">p</span> <span onmouseout="hideTip(event, 'fs13', 105)" onmouseover="showTip(event, 'fs13', 105)" class="i">h</span>)
+
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs37', 106)" onmouseover="showTip(event, 'fs37', 106)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs43', 107)" onmouseover="showTip(event, 'fs43', 107)" class="f">Delay</span>(<span onmouseout="hideTip(event, 'fs44', 108)" onmouseover="showTip(event, 'fs44', 108)" class="f">f</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs4', 109)" onmouseover="showTip(event, 'fs4', 109)" class="t">unit</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs9', 110)" onmouseover="showTip(event, 'fs9', 110)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">t</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs25', 111)" onmouseover="showTip(event, 'fs25', 111)" class="p">Startable</span> <span class="o">&lt;|</span> <span class="k">fun</span> () <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs44', 112)" onmouseover="showTip(event, 'fs44', 112)" class="f">f</span>()<span class="o">.</span><span class="f">resume</span> ()
+
+    <span class="c">// Resumable&lt;&#39;u,&#39;a&gt; -&gt; (&#39;a-&gt;Resumable&lt;&#39;v, &#39;b&gt;) -&gt; Resumable&lt;&#39;a option * &#39;u * &#39;v, &#39;b&gt;</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs37', 113)" onmouseover="showTip(event, 'fs37', 113)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs45', 114)" onmouseover="showTip(event, 'fs45', 114)" class="f">Bind</span>(<span onmouseout="hideTip(event, 'fs46', 115)" onmouseover="showTip(event, 'fs46', 115)" class="i">f</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 116)" onmouseover="showTip(event, 'fs9', 116)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span>,<span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs47', 117)" onmouseover="showTip(event, 'fs47', 117)" class="f">g</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span><span class="k">-&gt;</span><span onmouseout="hideTip(event, 'fs9', 118)" onmouseover="showTip(event, 'fs9', 118)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">v</span>, <span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 119)" onmouseover="showTip(event, 'fs19', 119)" class="f">printfn</span> <span class="s">&quot;===1: &#39;u:</span><span class="pf">%O</span><span class="s"> &#39;a: </span><span class="pf">%O</span><span class="s"> &#39;v: </span><span class="pf">%O</span><span class="s"> &#39;b: </span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs20', 120)" onmouseover="showTip(event, 'fs20', 120)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 121)" onmouseover="showTip(event, 'fs20', 121)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 122)" onmouseover="showTip(event, 'fs20', 122)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">v</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 123)" onmouseover="showTip(event, 'fs20', 123)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs9', 124)" onmouseover="showTip(event, 'fs9', 124)" class="p">Resumable</span> (<span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs48', 125)" onmouseover="showTip(event, 'fs48', 125)" class="f">p</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 126)" onmouseover="showTip(event, 'fs3', 126)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span> <span onmouseout="hideTip(event, 'fs8', 127)" onmouseover="showTip(event, 'fs8', 127)" class="t">option</span> <span class="o">*</span> <span class="o">&#39;</span><span class="i">u</span> <span class="o">*</span> <span class="o">&#39;</span><span class="i">v</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs49', 128)" onmouseover="showTip(event, 'fs49', 128)" class="i">cached</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span> <span onmouseout="hideTip(event, 'fs8', 129)" onmouseover="showTip(event, 'fs8', 129)" class="t">option</span>, <span onmouseout="hideTip(event, 'fs50', 130)" onmouseover="showTip(event, 'fs50', 130)" class="i">u</span><span class="o">:</span><span class="o">&#39;</span><span class="i">u</span>, <span onmouseout="hideTip(event, 'fs51', 131)" onmouseover="showTip(event, 'fs51', 131)" class="i">v</span><span class="o">:</span><span class="o">&#39;</span><span class="i">v</span>) <span class="k">-&gt;</span>
+                <span class="k">let</span> <span onmouseout="hideTip(event, 'fs52', 132)" onmouseover="showTip(event, 'fs52', 132)" class="f">persista</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs48', 133)" onmouseover="showTip(event, 'fs48', 133)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs53', 134)" onmouseover="showTip(event, 'fs53', 134)" class="i">a</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs24', 135)" onmouseover="showTip(event, 'fs24', 135)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs53', 136)" onmouseover="showTip(event, 'fs53', 136)" class="i">a</span>, <span onmouseout="hideTip(event, 'fs50', 137)" onmouseover="showTip(event, 'fs50', 137)" class="i">u</span>, <span onmouseout="hideTip(event, 'fs51', 138)" onmouseover="showTip(event, 'fs51', 138)" class="i">v</span>
+                <span class="k">let</span> <span onmouseout="hideTip(event, 'fs54', 139)" onmouseover="showTip(event, 'fs54', 139)" class="f">persistu</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs48', 140)" onmouseover="showTip(event, 'fs48', 140)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs50', 141)" onmouseover="showTip(event, 'fs50', 141)" class="i">u</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs22', 142)" onmouseover="showTip(event, 'fs22', 142)" class="p">None</span>, <span onmouseout="hideTip(event, 'fs50', 143)" onmouseover="showTip(event, 'fs50', 143)" class="i">u</span>, <span onmouseout="hideTip(event, 'fs51', 144)" onmouseover="showTip(event, 'fs51', 144)" class="i">v</span>
+                <span class="k">let</span> <span onmouseout="hideTip(event, 'fs53', 145)" onmouseover="showTip(event, 'fs53', 145)" class="i">a</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs49', 146)" onmouseover="showTip(event, 'fs49', 146)" class="i">cached</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs29', 147)" onmouseover="showTip(event, 'fs29', 147)" class="f">getOrEvaluate</span> <span onmouseout="hideTip(event, 'fs52', 148)" onmouseover="showTip(event, 'fs52', 148)" class="f">persista</span> (<span class="k">fun</span> () <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs46', 149)" onmouseover="showTip(event, 'fs46', 149)" class="i">f</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs55', 150)" onmouseover="showTip(event, 'fs55', 150)" class="f">resume</span> <span onmouseout="hideTip(event, 'fs54', 151)" onmouseover="showTip(event, 'fs54', 151)" class="f">persistu</span> <span onmouseout="hideTip(event, 'fs50', 152)" onmouseover="showTip(event, 'fs50', 152)" class="i">u</span>)
+                (<span onmouseout="hideTip(event, 'fs47', 153)" onmouseover="showTip(event, 'fs47', 153)" class="f">g</span> <span onmouseout="hideTip(event, 'fs53', 154)" onmouseover="showTip(event, 'fs53', 154)" class="i">a</span>)<span class="o">.</span><span class="f">resume</span> (<span onmouseout="hideTip(event, 'fs48', 155)" onmouseover="showTip(event, 'fs48', 155)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs51', 156)" onmouseover="showTip(event, 'fs51', 156)" class="i">v</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs24', 157)" onmouseover="showTip(event, 'fs24', 157)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs53', 158)" onmouseover="showTip(event, 'fs53', 158)" class="i">a</span>, <span onmouseout="hideTip(event, 'fs50', 159)" onmouseover="showTip(event, 'fs50', 159)" class="i">u</span>, <span onmouseout="hideTip(event, 'fs51', 160)" onmouseover="showTip(event, 'fs51', 160)" class="i">v</span>) <span onmouseout="hideTip(event, 'fs51', 161)" onmouseover="showTip(event, 'fs51', 161)" class="i">v</span>)
+  
+    <span class="c">// Resumable&lt;&#39;u,&#39;a&gt; -&gt; (&#39;a-&gt;Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;a option * &#39;u, &#39;b&gt;</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs37', 162)" onmouseover="showTip(event, 'fs37', 162)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs56', 163)" onmouseover="showTip(event, 'fs56', 163)" class="f">Bind</span>(<span onmouseout="hideTip(event, 'fs46', 164)" onmouseover="showTip(event, 'fs46', 164)" class="i">f</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 165)" onmouseover="showTip(event, 'fs9', 165)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span>,<span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs57', 166)" onmouseover="showTip(event, 'fs57', 166)" class="f">g</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span><span class="k">-&gt;</span><span onmouseout="hideTip(event, 'fs9', 167)" onmouseover="showTip(event, 'fs9', 167)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 168)" onmouseover="showTip(event, 'fs19', 168)" class="f">printfn</span> <span class="s">&quot;===2: &#39;u: </span><span class="pf">%O</span><span class="s"> &#39;a: </span><span class="pf">%O</span><span class="s"> &#39;b:</span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs20', 169)" onmouseover="showTip(event, 'fs20', 169)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 170)" onmouseover="showTip(event, 'fs20', 170)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 171)" onmouseover="showTip(event, 'fs20', 171)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs9', 172)" onmouseover="showTip(event, 'fs9', 172)" class="p">Resumable</span> (<span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs58', 173)" onmouseover="showTip(event, 'fs58', 173)" class="f">p</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 174)" onmouseover="showTip(event, 'fs3', 174)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span> <span onmouseout="hideTip(event, 'fs8', 175)" onmouseover="showTip(event, 'fs8', 175)" class="t">option</span> <span class="o">*</span> <span class="o">&#39;</span><span class="i">u</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs49', 176)" onmouseover="showTip(event, 'fs49', 176)" class="i">cached</span>, <span onmouseout="hideTip(event, 'fs50', 177)" onmouseover="showTip(event, 'fs50', 177)" class="i">u</span>) <span class="k">-&gt;</span>
+                        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs52', 178)" onmouseover="showTip(event, 'fs52', 178)" class="f">persista</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs58', 179)" onmouseover="showTip(event, 'fs58', 179)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs53', 180)" onmouseover="showTip(event, 'fs53', 180)" class="i">a</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs24', 181)" onmouseover="showTip(event, 'fs24', 181)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs53', 182)" onmouseover="showTip(event, 'fs53', 182)" class="i">a</span>, <span onmouseout="hideTip(event, 'fs50', 183)" onmouseover="showTip(event, 'fs50', 183)" class="i">u</span>
+                        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs54', 184)" onmouseover="showTip(event, 'fs54', 184)" class="f">persistu</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs58', 185)" onmouseover="showTip(event, 'fs58', 185)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs50', 186)" onmouseover="showTip(event, 'fs50', 186)" class="i">u</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs22', 187)" onmouseover="showTip(event, 'fs22', 187)" class="p">None</span>, <span onmouseout="hideTip(event, 'fs50', 188)" onmouseover="showTip(event, 'fs50', 188)" class="i">u</span>
+                        (<span onmouseout="hideTip(event, 'fs49', 189)" onmouseover="showTip(event, 'fs49', 189)" class="i">cached</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs29', 190)" onmouseover="showTip(event, 'fs29', 190)" class="f">getOrEvaluate</span> <span onmouseout="hideTip(event, 'fs52', 191)" onmouseover="showTip(event, 'fs52', 191)" class="f">persista</span> (<span class="k">fun</span> () <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs46', 192)" onmouseover="showTip(event, 'fs46', 192)" class="i">f</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs55', 193)" onmouseover="showTip(event, 'fs55', 193)" class="f">resume</span> <span onmouseout="hideTip(event, 'fs54', 194)" onmouseover="showTip(event, 'fs54', 194)" class="f">persistu</span> <span onmouseout="hideTip(event, 'fs50', 195)" onmouseover="showTip(event, 'fs50', 195)" class="i">u</span>) <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs57', 196)" onmouseover="showTip(event, 'fs57', 196)" class="f">g</span>)<span class="o">.</span><span class="f">resume</span>())
+
+    <span class="c">// Resumable&lt;&#39;a&gt; -&gt; (&#39;a-&gt;Resumable&lt;&#39;v, &#39;b&gt;) -&gt; Resumable&lt;&#39;a option * &#39;v, &#39;b&gt; =</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs37', 197)" onmouseover="showTip(event, 'fs37', 197)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs59', 198)" onmouseover="showTip(event, 'fs59', 198)" class="f">Bind</span>(<span onmouseout="hideTip(event, 'fs60', 199)" onmouseover="showTip(event, 'fs60', 199)" class="i">f</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 200)" onmouseover="showTip(event, 'fs9', 200)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs47', 201)" onmouseover="showTip(event, 'fs47', 201)" class="f">g</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span><span class="k">-&gt;</span><span onmouseout="hideTip(event, 'fs9', 202)" onmouseover="showTip(event, 'fs9', 202)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">v</span>, <span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 203)" onmouseover="showTip(event, 'fs19', 203)" class="f">printfn</span> <span class="s">&quot;===3: &#39;a: </span><span class="pf">%O</span><span class="s"> &#39;v: </span><span class="pf">%O</span><span class="s"> &#39;b:</span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs20', 204)" onmouseover="showTip(event, 'fs20', 204)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 205)" onmouseover="showTip(event, 'fs20', 205)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">v</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 206)" onmouseover="showTip(event, 'fs20', 206)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs9', 207)" onmouseover="showTip(event, 'fs9', 207)" class="p">Resumable</span> (<span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs61', 208)" onmouseover="showTip(event, 'fs61', 208)" class="f">p</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 209)" onmouseover="showTip(event, 'fs3', 209)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span> <span onmouseout="hideTip(event, 'fs8', 210)" onmouseover="showTip(event, 'fs8', 210)" class="t">option</span> <span class="o">*</span> <span class="o">&#39;</span><span class="i">v</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs49', 211)" onmouseover="showTip(event, 'fs49', 211)" class="i">cached</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span> <span onmouseout="hideTip(event, 'fs8', 212)" onmouseover="showTip(event, 'fs8', 212)" class="t">option</span>, <span onmouseout="hideTip(event, 'fs51', 213)" onmouseover="showTip(event, 'fs51', 213)" class="i">v</span>) <span class="k">-&gt;</span> 
+                        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs53', 214)" onmouseover="showTip(event, 'fs53', 214)" class="i">a</span> <span class="o">:</span><span class="o">&#39;</span><span class="i">a</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs49', 215)" onmouseover="showTip(event, 'fs49', 215)" class="i">cached</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs29', 216)" onmouseover="showTip(event, 'fs29', 216)" class="f">getOrEvaluate</span> (<span onmouseout="hideTip(event, 'fs61', 217)" onmouseover="showTip(event, 'fs61', 217)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs53', 218)" onmouseover="showTip(event, 'fs53', 218)" class="i">a</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs24', 219)" onmouseover="showTip(event, 'fs24', 219)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs53', 220)" onmouseover="showTip(event, 'fs53', 220)" class="i">a</span>, <span onmouseout="hideTip(event, 'fs51', 221)" onmouseover="showTip(event, 'fs51', 221)" class="i">v</span>) <span onmouseout="hideTip(event, 'fs60', 222)" onmouseover="showTip(event, 'fs60', 222)" class="i">f</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs62', 223)" onmouseover="showTip(event, 'fs62', 223)" class="f">resume</span>
+                        (<span onmouseout="hideTip(event, 'fs47', 224)" onmouseover="showTip(event, 'fs47', 224)" class="f">g</span> <span onmouseout="hideTip(event, 'fs53', 225)" onmouseover="showTip(event, 'fs53', 225)" class="i">a</span>)<span class="o">.</span><span class="f">resume</span> (<span onmouseout="hideTip(event, 'fs61', 226)" onmouseover="showTip(event, 'fs61', 226)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs51', 227)" onmouseover="showTip(event, 'fs51', 227)" class="i">v</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs24', 228)" onmouseover="showTip(event, 'fs24', 228)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs53', 229)" onmouseover="showTip(event, 'fs53', 229)" class="i">a</span>, <span onmouseout="hideTip(event, 'fs51', 230)" onmouseover="showTip(event, 'fs51', 230)" class="i">v</span>) <span onmouseout="hideTip(event, 'fs51', 231)" onmouseover="showTip(event, 'fs51', 231)" class="i">v</span>)
+
+    <span class="c">// Resumable&lt;&#39;a&gt; -&gt; (&#39;a-&gt;Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;a option, &#39;b&gt; =</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs37', 232)" onmouseover="showTip(event, 'fs37', 232)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs63', 233)" onmouseover="showTip(event, 'fs63', 233)" class="f">Bind</span>(<span onmouseout="hideTip(event, 'fs60', 234)" onmouseover="showTip(event, 'fs60', 234)" class="i">f</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 235)" onmouseover="showTip(event, 'fs9', 235)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs57', 236)" onmouseover="showTip(event, 'fs57', 236)" class="f">g</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span><span class="k">-&gt;</span><span onmouseout="hideTip(event, 'fs9', 237)" onmouseover="showTip(event, 'fs9', 237)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 238)" onmouseover="showTip(event, 'fs19', 238)" class="f">printfn</span> <span class="s">&quot;===4: &#39;a: </span><span class="pf">%O</span><span class="s"> &#39;b: </span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs20', 239)" onmouseover="showTip(event, 'fs20', 239)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 240)" onmouseover="showTip(event, 'fs20', 240)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs9', 241)" onmouseover="showTip(event, 'fs9', 241)" class="p">Resumable</span> (<span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs64', 242)" onmouseover="showTip(event, 'fs64', 242)" class="f">p</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 243)" onmouseover="showTip(event, 'fs3', 243)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span> <span onmouseout="hideTip(event, 'fs8', 244)" onmouseover="showTip(event, 'fs8', 244)" class="t">option</span><span class="o">&gt;</span>) <span onmouseout="hideTip(event, 'fs49', 245)" onmouseover="showTip(event, 'fs49', 245)" class="i">cached</span> <span class="k">-&gt;</span>
+                    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs53', 246)" onmouseover="showTip(event, 'fs53', 246)" class="i">a</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs49', 247)" onmouseover="showTip(event, 'fs49', 247)" class="i">cached</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs29', 248)" onmouseover="showTip(event, 'fs29', 248)" class="f">getOrEvaluate</span> (<span onmouseout="hideTip(event, 'fs64', 249)" onmouseover="showTip(event, 'fs64', 249)" class="f">p</span> <span class="o">+~</span> <span onmouseout="hideTip(event, 'fs24', 250)" onmouseover="showTip(event, 'fs24', 250)" class="p">Some</span>) <span onmouseout="hideTip(event, 'fs60', 251)" onmouseover="showTip(event, 'fs60', 251)" class="i">f</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs62', 252)" onmouseover="showTip(event, 'fs62', 252)" class="f">resume</span>
+                    (<span onmouseout="hideTip(event, 'fs57', 253)" onmouseover="showTip(event, 'fs57', 253)" class="f">g</span> <span onmouseout="hideTip(event, 'fs53', 254)" onmouseover="showTip(event, 'fs53', 254)" class="i">a</span>)<span class="o">.</span><span class="f">resume</span>())
+
+    <span class="c">// Resumable&lt;&#39;a&gt; -&gt; (&#39;a-&gt;Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;b&gt;</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs37', 255)" onmouseover="showTip(event, 'fs37', 255)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs65', 256)" onmouseover="showTip(event, 'fs65', 256)" class="f">BindNoCache</span>(<span onmouseout="hideTip(event, 'fs60', 257)" onmouseover="showTip(event, 'fs60', 257)" class="i">f</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 258)" onmouseover="showTip(event, 'fs9', 258)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs57', 259)" onmouseover="showTip(event, 'fs57', 259)" class="f">g</span><span class="o">:</span><span class="o">&#39;</span><span class="i">a</span><span class="k">-&gt;</span><span onmouseout="hideTip(event, 'fs9', 260)" onmouseover="showTip(event, 'fs9', 260)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 261)" onmouseover="showTip(event, 'fs19', 261)" class="f">printfn</span> <span class="s">&quot;===5: &#39;a: </span><span class="pf">%O</span><span class="s"> &#39;b: </span><span class="pf">%O</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs20', 262)" onmouseover="showTip(event, 'fs20', 262)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">a</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs20', 263)" onmouseover="showTip(event, 'fs20', 263)" class="i">typeof</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>
+        <span onmouseout="hideTip(event, 'fs25', 264)" onmouseover="showTip(event, 'fs25', 264)" class="p">Startable</span> (<span class="k">fun</span> () <span class="k">-&gt;</span> (<span onmouseout="hideTip(event, 'fs57', 265)" onmouseover="showTip(event, 'fs57', 265)" class="f">g</span> <span class="o">&lt;|</span> <span onmouseout="hideTip(event, 'fs60', 266)" onmouseover="showTip(event, 'fs60', 266)" class="i">f</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs62', 267)" onmouseover="showTip(event, 'fs62', 267)" class="f">resume</span>())<span class="o">.</span><span class="f">resume</span>())
+
+    <span class="c">// Resumable&lt;&#39;u,unit&gt; -&gt; Resumable&lt;&#39;v,&#39;b&gt; -&gt; Resumable&lt;&#39;u * &#39;v,&#39;b&gt;</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs37', 268)" onmouseover="showTip(event, 'fs37', 268)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs66', 269)" onmouseover="showTip(event, 'fs66', 269)" class="f">Combine</span>(<span onmouseout="hideTip(event, 'fs67', 270)" onmouseover="showTip(event, 'fs67', 270)" class="i">p1</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 271)" onmouseover="showTip(event, 'fs9', 271)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span>,<span onmouseout="hideTip(event, 'fs4', 272)" onmouseover="showTip(event, 'fs4', 272)" class="t">unit</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs68', 273)" onmouseover="showTip(event, 'fs68', 273)" class="i">p2</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 274)" onmouseover="showTip(event, 'fs9', 274)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">v</span>,<span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 275)" onmouseover="showTip(event, 'fs19', 275)" class="f">printfn</span> <span class="s">&quot;===6&quot;</span>
+        <span onmouseout="hideTip(event, 'fs9', 276)" onmouseover="showTip(event, 'fs9', 276)" class="p">Resumable</span> (<span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs69', 277)" onmouseover="showTip(event, 'fs69', 277)" class="f">p</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs3', 278)" onmouseover="showTip(event, 'fs3', 278)" class="t">Persist</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">u</span> <span class="o">*</span> <span class="o">&#39;</span><span class="i">v</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs50', 279)" onmouseover="showTip(event, 'fs50', 279)" class="i">u</span>, <span onmouseout="hideTip(event, 'fs51', 280)" onmouseover="showTip(event, 'fs51', 280)" class="i">v</span>) <span class="k">-&gt;</span>
+                                <span onmouseout="hideTip(event, 'fs67', 281)" onmouseover="showTip(event, 'fs67', 281)" class="i">p1</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs55', 282)" onmouseover="showTip(event, 'fs55', 282)" class="f">resume</span> (<span onmouseout="hideTip(event, 'fs69', 283)" onmouseover="showTip(event, 'fs69', 283)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs50', 284)" onmouseover="showTip(event, 'fs50', 284)" class="i">u</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs50', 285)" onmouseover="showTip(event, 'fs50', 285)" class="i">u</span>, <span onmouseout="hideTip(event, 'fs51', 286)" onmouseover="showTip(event, 'fs51', 286)" class="i">v</span>) <span onmouseout="hideTip(event, 'fs50', 287)" onmouseover="showTip(event, 'fs50', 287)" class="i">u</span>
+                                <span onmouseout="hideTip(event, 'fs68', 288)" onmouseover="showTip(event, 'fs68', 288)" class="i">p2</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs55', 289)" onmouseover="showTip(event, 'fs55', 289)" class="f">resume</span> (<span onmouseout="hideTip(event, 'fs69', 290)" onmouseover="showTip(event, 'fs69', 290)" class="f">p</span> <span class="o">+~</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs51', 291)" onmouseover="showTip(event, 'fs51', 291)" class="i">v</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs50', 292)" onmouseover="showTip(event, 'fs50', 292)" class="i">u</span>, <span onmouseout="hideTip(event, 'fs51', 293)" onmouseover="showTip(event, 'fs51', 293)" class="i">v</span>) <span onmouseout="hideTip(event, 'fs51', 294)" onmouseover="showTip(event, 'fs51', 294)" class="i">v</span>)
+
+    <span class="c">// Resumable&lt;unit&gt; -&gt; Resumable&lt;&#39;b&gt; -&gt; Resumable&lt;&#39;b&gt;</span>
+    <span class="k">member</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs37', 295)" onmouseover="showTip(event, 'fs37', 295)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs70', 296)" onmouseover="showTip(event, 'fs70', 296)" class="f">Combine</span>(<span onmouseout="hideTip(event, 'fs71', 297)" onmouseover="showTip(event, 'fs71', 297)" class="i">p1</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 298)" onmouseover="showTip(event, 'fs9', 298)" class="t">Resumable</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs4', 299)" onmouseover="showTip(event, 'fs4', 299)" class="t">unit</span><span class="o">&gt;</span>, <span onmouseout="hideTip(event, 'fs72', 300)" onmouseover="showTip(event, 'fs72', 300)" class="i">p2</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 301)" onmouseover="showTip(event, 'fs9', 301)" class="t">Resumable</span><span class="o">&lt;</span><span class="o">&#39;</span><span class="i">b</span><span class="o">&gt;</span>) <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 302)" onmouseover="showTip(event, 'fs19', 302)" class="f">printfn</span> <span class="s">&quot;===7&quot;</span>
+        <span onmouseout="hideTip(event, 'fs25', 303)" onmouseover="showTip(event, 'fs25', 303)" class="p">Startable</span> (<span class="k">fun</span> () <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs71', 304)" onmouseover="showTip(event, 'fs71', 304)" class="i">p1</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs62', 305)" onmouseover="showTip(event, 'fs62', 305)" class="f">resume</span>(); <span onmouseout="hideTip(event, 'fs72', 306)" onmouseover="showTip(event, 'fs72', 306)" class="i">p2</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs62', 307)" onmouseover="showTip(event, 'fs62', 307)" class="f">resume</span>())
+
+    <span class="k">member</span> <span onmouseout="hideTip(event, 'fs37', 308)" onmouseover="showTip(event, 'fs37', 308)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs73', 309)" onmouseover="showTip(event, 'fs73', 309)" class="f">While</span>(<span onmouseout="hideTip(event, 'fs74', 310)" onmouseover="showTip(event, 'fs74', 310)" class="f">condition</span>, <span onmouseout="hideTip(event, 'fs75', 311)" onmouseover="showTip(event, 'fs75', 311)" class="i">body</span><span class="o">:</span><span onmouseout="hideTip(event, 'fs9', 312)" onmouseover="showTip(event, 'fs9', 312)" class="t">Resumable</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs4', 313)" onmouseover="showTip(event, 'fs4', 313)" class="t">unit</span><span class="o">&gt;</span>) <span class="o">:</span> <span onmouseout="hideTip(event, 'fs9', 314)" onmouseover="showTip(event, 'fs9', 314)" class="t">Resumable</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs4', 315)" onmouseover="showTip(event, 'fs4', 315)" class="t">unit</span><span class="o">&gt;</span> <span class="o">=</span>
+        <span class="k">if</span> <span onmouseout="hideTip(event, 'fs74', 316)" onmouseover="showTip(event, 'fs74', 316)" class="f">condition</span>() <span class="k">then</span>
+            <span onmouseout="hideTip(event, 'fs37', 317)" onmouseover="showTip(event, 'fs37', 317)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs76', 318)" onmouseover="showTip(event, 'fs76', 318)" class="f">BindNoCache</span>(<span onmouseout="hideTip(event, 'fs75', 319)" onmouseover="showTip(event, 'fs75', 319)" class="i">body</span>, (<span class="k">fun</span> () <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs37', 320)" onmouseover="showTip(event, 'fs37', 320)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs77', 321)" onmouseover="showTip(event, 'fs77', 321)" class="f">While</span>(<span onmouseout="hideTip(event, 'fs74', 322)" onmouseover="showTip(event, 'fs74', 322)" class="f">condition</span>, <span onmouseout="hideTip(event, 'fs75', 323)" onmouseover="showTip(event, 'fs75', 323)" class="i">body</span>)))
+        <span class="k">else</span>
+            <span onmouseout="hideTip(event, 'fs37', 324)" onmouseover="showTip(event, 'fs37', 324)" class="i">__</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs78', 325)" onmouseover="showTip(event, 'fs78', 325)" class="f">Zero</span>()
+</code></pre></td>
+</tr>
+</table>
+<p>We now define the computational expression <code>resumable { ... }</code> with all
+the syntactic sugar automatically inferred from the above monadic operators.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+<span class="l">27: </span>
+<span class="l">28: </span>
+<span class="l">29: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs79', 326)" onmouseover="showTip(event, 'fs79', 326)" class="i">resumable</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs35', 327)" onmouseover="showTip(event, 'fs35', 327)" class="t">ResumableBuilder</span>()
+
+<span class="c">/// File storage based on Newtonsoft serialization</span>
+<span class="k">let</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs80', 328)" onmouseover="showTip(event, 'fs80', 328)" class="f">NewtonsoftStorage</span><span class="o">&lt;</span> <span class="o">^</span><span class="i">T</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs81', 329)" onmouseover="showTip(event, 'fs81', 329)" class="i">fileName</span> <span class="o">=</span>
+    {
+        <span class="i">save</span> <span class="o">=</span> <span class="k">fun</span> <span onmouseout="hideTip(event, 'fs82', 330)" onmouseover="showTip(event, 'fs82', 330)" class="i">history</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs83', 331)" onmouseover="showTip(event, 'fs83', 331)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 332)" onmouseover="showTip(event, 'fs84', 332)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs85', 333)" onmouseover="showTip(event, 'fs85', 333)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs86', 334)" onmouseover="showTip(event, 'fs86', 334)" class="f">WriteAllText</span>(<span onmouseout="hideTip(event, 'fs81', 335)" onmouseover="showTip(event, 'fs81', 335)" class="i">fileName</span>, <span class="i">Newtonsoft</span><span class="o">.</span><span class="i">Json</span><span class="o">.</span><span class="i">JsonConvert</span><span class="o">.</span><span class="i">SerializeObject</span>(<span onmouseout="hideTip(event, 'fs82', 336)" onmouseover="showTip(event, 'fs82', 336)" class="i">history</span>))
+        <span class="i">load</span> <span class="o">=</span> <span class="k">fun</span> () <span class="k">-&gt;</span>
+                <span class="k">if</span> <span onmouseout="hideTip(event, 'fs83', 337)" onmouseover="showTip(event, 'fs83', 337)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 338)" onmouseover="showTip(event, 'fs84', 338)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs85', 339)" onmouseover="showTip(event, 'fs85', 339)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs87', 340)" onmouseover="showTip(event, 'fs87', 340)" class="f">Exists</span> <span onmouseout="hideTip(event, 'fs81', 341)" onmouseover="showTip(event, 'fs81', 341)" class="i">fileName</span> <span class="k">then</span>
+                    <span onmouseout="hideTip(event, 'fs24', 342)" onmouseover="showTip(event, 'fs24', 342)" class="p">Some</span> <span class="o">&lt;|</span> <span class="i">Newtonsoft</span><span class="o">.</span><span class="i">Json</span><span class="o">.</span><span class="i">JsonConvert</span><span class="o">.</span><span class="i">DeserializeObject</span><span class="o">&lt;</span> <span class="o">^</span><span class="i">T</span><span class="o">&gt;</span>(<span onmouseout="hideTip(event, 'fs83', 343)" onmouseover="showTip(event, 'fs83', 343)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 344)" onmouseover="showTip(event, 'fs84', 344)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs85', 345)" onmouseover="showTip(event, 'fs85', 345)" class="i">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs88', 346)" onmouseover="showTip(event, 'fs88', 346)" class="i">ReadAllText</span>(<span onmouseout="hideTip(event, 'fs81', 347)" onmouseover="showTip(event, 'fs81', 347)" class="i">fileName</span>))
+                <span class="k">else</span>
+                    <span onmouseout="hideTip(event, 'fs22', 348)" onmouseover="showTip(event, 'fs22', 348)" class="p">None</span>
+    }
+
+<span class="c">/// File storage based on FSharpLu.Json</span>
+<span class="k">let</span> <span class="k">inline</span> <span onmouseout="hideTip(event, 'fs89', 349)" onmouseover="showTip(event, 'fs89', 349)" class="f">LuStorage</span><span class="o">&lt;</span> <span class="o">^</span><span class="i">T</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs81', 350)" onmouseover="showTip(event, 'fs81', 350)" class="i">fileName</span> <span class="o">=</span>
+    {
+        <span class="i">save</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs90', 351)" onmouseover="showTip(event, 'fs90', 351)" class="i">Microsoft</span><span class="o">.</span><span class="i">FSharpLu</span><span class="o">.</span><span class="i">Json</span><span class="o">.</span><span class="i">Compact</span><span class="o">.</span><span class="i">serializeToFile</span> <span onmouseout="hideTip(event, 'fs81', 352)" onmouseover="showTip(event, 'fs81', 352)" class="i">fileName</span>
+        <span class="i">load</span> <span class="o">=</span> <span class="k">fun</span> () <span class="k">-&gt;</span>
+                    <span class="k">if</span> <span onmouseout="hideTip(event, 'fs83', 353)" onmouseover="showTip(event, 'fs83', 353)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 354)" onmouseover="showTip(event, 'fs84', 354)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs85', 355)" onmouseover="showTip(event, 'fs85', 355)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs87', 356)" onmouseover="showTip(event, 'fs87', 356)" class="f">Exists</span> <span onmouseout="hideTip(event, 'fs81', 357)" onmouseover="showTip(event, 'fs81', 357)" class="i">fileName</span> <span class="k">then</span>
+                        <span onmouseout="hideTip(event, 'fs19', 358)" onmouseover="showTip(event, 'fs19', 358)" class="f">printfn</span> <span class="s">&quot;Loading cached points from file </span><span class="pf">%s</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs81', 359)" onmouseover="showTip(event, 'fs81', 359)" class="i">fileName</span>
+                        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs91', 360)" onmouseover="showTip(event, 'fs91', 360)" class="i">cache</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs90', 361)" onmouseover="showTip(event, 'fs90', 361)" class="i">Microsoft</span><span class="o">.</span><span class="i">FSharpLu</span><span class="o">.</span><span class="i">Json</span><span class="o">.</span><span class="i">Compact</span><span class="o">.</span><span class="i">tryDeserializeFile</span><span class="o">&lt;</span> <span class="o">^</span><span class="i">T</span><span class="o">&gt;</span> <span onmouseout="hideTip(event, 'fs81', 362)" onmouseover="showTip(event, 'fs81', 362)" class="i">fileName</span>
+                        <span class="k">match</span> <span onmouseout="hideTip(event, 'fs91', 363)" onmouseover="showTip(event, 'fs91', 363)" class="i">cache</span> <span class="k">with</span>
+                        | <span onmouseout="hideTip(event, 'fs92', 364)" onmouseover="showTip(event, 'fs92', 364)" class="p">Choice1Of2</span> <span onmouseout="hideTip(event, 'fs93', 365)" onmouseover="showTip(event, 'fs93', 365)" class="i">cache</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs24', 366)" onmouseover="showTip(event, 'fs24', 366)" class="p">Some</span> <span onmouseout="hideTip(event, 'fs93', 367)" onmouseover="showTip(event, 'fs93', 367)" class="i">cache</span>
+                        | <span onmouseout="hideTip(event, 'fs94', 368)" onmouseover="showTip(event, 'fs94', 368)" class="p">Choice2Of2</span> _ <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs22', 369)" onmouseover="showTip(event, 'fs22', 369)" class="p">None</span>
+
+                    <span class="k">else</span>
+                        <span onmouseout="hideTip(event, 'fs19', 370)" onmouseover="showTip(event, 'fs19', 370)" class="f">printfn</span> <span class="s">&quot;Cache history file not found, starting computation from scratch.&quot;</span>
+                        <span onmouseout="hideTip(event, 'fs22', 371)" onmouseover="showTip(event, 'fs22', 371)" class="p">None</span>
+    }
+</code></pre></td>
+</tr>
+</table>
+<p>A simple example: finding three large prime numbers and summing them up</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+<span class="l">27: </span>
+<span class="l">28: </span>
+<span class="l">29: </span>
+<span class="l">30: </span>
+<span class="l">31: </span>
+<span class="l">32: </span>
+<span class="l">33: </span>
+<span class="l">34: </span>
+<span class="l">35: </span>
+<span class="l">36: </span>
+<span class="l">37: </span>
+<span class="l">38: </span>
+<span class="l">39: </span>
+<span class="l">40: </span>
+<span class="l">41: </span>
+<span class="l">42: </span>
+<span class="l">43: </span>
+<span class="l">44: </span>
+<span class="l">45: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">module</span> <span onmouseout="hideTip(event, 'fs95', 372)" onmouseover="showTip(event, 'fs95', 372)" class="t">Example</span> <span class="o">=</span>
+    <span class="k">open</span> <span onmouseout="hideTip(event, 'fs83', 373)" onmouseover="showTip(event, 'fs83', 373)" class="i">System</span>
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs96', 374)" onmouseover="showTip(event, 'fs96', 374)" class="f">isPrime</span> <span class="o">=</span> <span class="k">function</span>
+    | <span class="n">1</span> <span class="k">-&gt;</span> <span class="k">false</span>
+    | <span class="n">2</span> <span class="k">-&gt;</span> <span class="k">true</span>
+    | <span onmouseout="hideTip(event, 'fs97', 375)" onmouseover="showTip(event, 'fs97', 375)" class="i">n</span> <span class="k">-&gt;</span> { <span class="n">2..</span>(<span onmouseout="hideTip(event, 'fs98', 376)" onmouseover="showTip(event, 'fs98', 376)" class="f">int</span> <span class="o">&lt;|</span> <span onmouseout="hideTip(event, 'fs99', 377)" onmouseover="showTip(event, 'fs99', 377)" class="t">Math</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs100', 378)" onmouseover="showTip(event, 'fs100', 378)" class="f">Ceiling</span>(<span onmouseout="hideTip(event, 'fs99', 379)" onmouseover="showTip(event, 'fs99', 379)" class="t">Math</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs101', 380)" onmouseover="showTip(event, 'fs101', 380)" class="f">Sqrt</span>(<span onmouseout="hideTip(event, 'fs102', 381)" onmouseover="showTip(event, 'fs102', 381)" class="f">float</span> <span onmouseout="hideTip(event, 'fs97', 382)" onmouseover="showTip(event, 'fs97', 382)" class="i">n</span>))) } <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs103', 383)" onmouseover="showTip(event, 'fs103', 383)" class="t">Seq</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs104', 384)" onmouseover="showTip(event, 'fs104', 384)" class="f">forall</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs105', 385)" onmouseover="showTip(event, 'fs105', 385)" class="i">d</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs97', 386)" onmouseover="showTip(event, 'fs97', 386)" class="i">n</span> <span class="o">%</span> <span onmouseout="hideTip(event, 'fs105', 387)" onmouseover="showTip(event, 'fs105', 387)" class="i">d</span> <span class="o">&lt;&gt;</span> <span class="n">0</span>)
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs106', 388)" onmouseover="showTip(event, 'fs106', 388)" class="f">nthprime</span> <span onmouseout="hideTip(event, 'fs97', 389)" onmouseover="showTip(event, 'fs97', 389)" class="i">n</span> <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs19', 390)" onmouseover="showTip(event, 'fs19', 390)" class="f">printfn</span> <span class="s">&quot;Calculating </span><span class="pf">%d</span><span class="s">th prime...&quot;</span> <span onmouseout="hideTip(event, 'fs97', 391)" onmouseover="showTip(event, 'fs97', 391)" class="i">n</span>
+        <span class="k">let</span> <span onmouseout="hideTip(event, 'fs107', 392)" onmouseover="showTip(event, 'fs107', 392)" class="i">p</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs103', 393)" onmouseover="showTip(event, 'fs103', 393)" class="t">Seq</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs108', 394)" onmouseover="showTip(event, 'fs108', 394)" class="f">initInfinite</span> <span onmouseout="hideTip(event, 'fs109', 395)" onmouseover="showTip(event, 'fs109', 395)" class="f">id</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs103', 396)" onmouseover="showTip(event, 'fs103', 396)" class="t">Seq</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs110', 397)" onmouseover="showTip(event, 'fs110', 397)" class="f">where</span> <span onmouseout="hideTip(event, 'fs96', 398)" onmouseover="showTip(event, 'fs96', 398)" class="f">isPrime</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs103', 399)" onmouseover="showTip(event, 'fs103', 399)" class="t">Seq</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs111', 400)" onmouseover="showTip(event, 'fs111', 400)" class="f">item</span> <span onmouseout="hideTip(event, 'fs97', 401)" onmouseover="showTip(event, 'fs97', 401)" class="i">n</span>
+        <span onmouseout="hideTip(event, 'fs19', 402)" onmouseover="showTip(event, 'fs19', 402)" class="f">printfn</span> <span class="s">&quot;</span><span class="pf">%d</span><span class="s">th prime is: </span><span class="pf">%d</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs97', 403)" onmouseover="showTip(event, 'fs97', 403)" class="i">n</span> <span onmouseout="hideTip(event, 'fs107', 404)" onmouseover="showTip(event, 'fs107', 404)" class="i">p</span>
+        <span onmouseout="hideTip(event, 'fs107', 405)" onmouseover="showTip(event, 'fs107', 405)" class="i">p</span>
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs112', 406)" onmouseover="showTip(event, 'fs112', 406)" class="f">addPrimes</span> <span onmouseout="hideTip(event, 'fs113', 407)" onmouseover="showTip(event, 'fs113', 407)" class="i">n1</span> <span onmouseout="hideTip(event, 'fs114', 408)" onmouseover="showTip(event, 'fs114', 408)" class="i">n2</span> <span onmouseout="hideTip(event, 'fs115', 409)" onmouseover="showTip(event, 'fs115', 409)" class="i">n3</span> <span class="o">=</span>
+        <span onmouseout="hideTip(event, 'fs79', 410)" onmouseover="showTip(event, 'fs79', 410)" class="i">resumable</span> {
+            <span onmouseout="hideTip(event, 'fs19', 411)" onmouseover="showTip(event, 'fs19', 411)" class="f">printfn</span> <span class="s">&quot;Starting computation&quot;</span>
+
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs116', 412)" onmouseover="showTip(event, 'fs116', 412)" class="i">p1</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs79', 413)" onmouseover="showTip(event, 'fs79', 413)" class="i">resumable</span> { <span class="k">return</span> <span onmouseout="hideTip(event, 'fs106', 414)" onmouseover="showTip(event, 'fs106', 414)" class="f">nthprime</span> <span onmouseout="hideTip(event, 'fs113', 415)" onmouseover="showTip(event, 'fs113', 415)" class="i">n1</span> }
+
+            <span onmouseout="hideTip(event, 'fs19', 416)" onmouseover="showTip(event, 'fs19', 416)" class="f">printfn</span> <span class="s">&quot;Press enter to continue or CTRL+BREAK to pause the calculation here.&quot;</span>
+            <span onmouseout="hideTip(event, 'fs83', 417)" onmouseover="showTip(event, 'fs83', 417)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs117', 418)" onmouseover="showTip(event, 'fs117', 418)" class="t">Console</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs118', 419)" onmouseover="showTip(event, 'fs118', 419)" class="f">Read</span>() <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs119', 420)" onmouseover="showTip(event, 'fs119', 420)" class="f">ignore</span>
+
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs120', 421)" onmouseover="showTip(event, 'fs120', 421)" class="i">p2</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs79', 422)" onmouseover="showTip(event, 'fs79', 422)" class="i">resumable</span> { <span class="k">return</span> <span onmouseout="hideTip(event, 'fs106', 423)" onmouseover="showTip(event, 'fs106', 423)" class="f">nthprime</span> <span onmouseout="hideTip(event, 'fs114', 424)" onmouseover="showTip(event, 'fs114', 424)" class="i">n2</span> }
+
+            <span onmouseout="hideTip(event, 'fs19', 425)" onmouseover="showTip(event, 'fs19', 425)" class="f">printfn</span> <span class="s">&quot;Press enter to continue or CTRL+BREAK to pause the calculation here.&quot;</span>
+            <span onmouseout="hideTip(event, 'fs83', 426)" onmouseover="showTip(event, 'fs83', 426)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs117', 427)" onmouseover="showTip(event, 'fs117', 427)" class="t">Console</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs118', 428)" onmouseover="showTip(event, 'fs118', 428)" class="f">Read</span>()<span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs119', 429)" onmouseover="showTip(event, 'fs119', 429)" class="f">ignore</span>
+
+            <span class="k">let!</span> <span onmouseout="hideTip(event, 'fs121', 430)" onmouseover="showTip(event, 'fs121', 430)" class="i">p3</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs79', 431)" onmouseover="showTip(event, 'fs79', 431)" class="i">resumable</span> { <span class="k">return</span> <span onmouseout="hideTip(event, 'fs106', 432)" onmouseover="showTip(event, 'fs106', 432)" class="f">nthprime</span> <span onmouseout="hideTip(event, 'fs115', 433)" onmouseover="showTip(event, 'fs115', 433)" class="i">n3</span> }
+
+            <span class="k">let</span> <span onmouseout="hideTip(event, 'fs122', 434)" onmouseover="showTip(event, 'fs122', 434)" class="i">sum</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs116', 435)" onmouseover="showTip(event, 'fs116', 435)" class="i">p1</span> <span class="o">+</span> <span onmouseout="hideTip(event, 'fs120', 436)" onmouseover="showTip(event, 'fs120', 436)" class="i">p2</span> <span class="o">+</span> <span onmouseout="hideTip(event, 'fs121', 437)" onmouseover="showTip(event, 'fs121', 437)" class="i">p3</span>
+            <span onmouseout="hideTip(event, 'fs19', 438)" onmouseover="showTip(event, 'fs19', 438)" class="f">printfn</span> <span class="s">&quot;The sum of </span><span class="pf">%d</span><span class="s">th prime, </span><span class="pf">%d</span><span class="s">th prime and </span><span class="pf">%d</span><span class="s">th prime is </span><span class="pf">%d</span><span class="s">&quot;</span>  <span onmouseout="hideTip(event, 'fs113', 439)" onmouseover="showTip(event, 'fs113', 439)" class="i">n1</span> <span onmouseout="hideTip(event, 'fs114', 440)" onmouseover="showTip(event, 'fs114', 440)" class="i">n2</span> <span onmouseout="hideTip(event, 'fs115', 441)" onmouseover="showTip(event, 'fs115', 441)" class="i">n3</span> <span onmouseout="hideTip(event, 'fs122', 442)" onmouseover="showTip(event, 'fs122', 442)" class="i">sum</span>
+            <span class="k">return</span> <span onmouseout="hideTip(event, 'fs122', 443)" onmouseover="showTip(event, 'fs122', 443)" class="i">sum</span>
+        }
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs123', 444)" onmouseover="showTip(event, 'fs123', 444)" class="i">f</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs83', 445)" onmouseover="showTip(event, 'fs83', 445)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 446)" onmouseover="showTip(event, 'fs84', 446)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs124', 447)" onmouseover="showTip(event, 'fs124', 447)" class="t">Path</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs125', 448)" onmouseover="showTip(event, 'fs125', 448)" class="f">GetTempFileName</span>()
+    <span onmouseout="hideTip(event, 'fs19', 449)" onmouseover="showTip(event, 'fs19', 449)" class="f">printfn</span> <span class="s">&quot;State file is </span><span class="pf">%s</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs123', 450)" onmouseover="showTip(event, 'fs123', 450)" class="i">f</span>
+
+    <span onmouseout="hideTip(event, 'fs83', 451)" onmouseover="showTip(event, 'fs83', 451)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 452)" onmouseover="showTip(event, 'fs84', 452)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs85', 453)" onmouseover="showTip(event, 'fs85', 453)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs126', 454)" onmouseover="showTip(event, 'fs126', 454)" class="f">Delete</span>(<span onmouseout="hideTip(event, 'fs123', 455)" onmouseover="showTip(event, 'fs123', 455)" class="i">f</span>)
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs127', 456)" onmouseover="showTip(event, 'fs127', 456)" class="i">result</span> <span class="o">=</span> (<span onmouseout="hideTip(event, 'fs112', 457)" onmouseover="showTip(event, 'fs112', 457)" class="f">addPrimes</span> <span class="n">30000</span> <span class="n">20000</span> <span class="n">10000</span>)<span class="o">.</span><span class="f">evaluate</span> (<span onmouseout="hideTip(event, 'fs89', 458)" onmouseover="showTip(event, 'fs89', 458)" class="f">LuStorage</span> <span onmouseout="hideTip(event, 'fs123', 459)" onmouseover="showTip(event, 'fs123', 459)" class="i">f</span>)
+    <span onmouseout="hideTip(event, 'fs19', 460)" onmouseover="showTip(event, 'fs19', 460)" class="f">printfn</span> <span class="s">&quot;Result of the resumable computation is </span><span class="pf">%d</span><span class="s">&quot;</span> <span onmouseout="hideTip(event, 'fs127', 461)" onmouseover="showTip(event, 'fs127', 461)" class="i">result</span>
+
+    <span onmouseout="hideTip(event, 'fs128', 462)" onmouseover="showTip(event, 'fs128', 462)" class="f">printf</span> <span class="s">&quot;</span><span class="pf">%s</span><span class="s">&quot;</span> <span class="o">&lt;|</span> <span onmouseout="hideTip(event, 'fs83', 463)" onmouseover="showTip(event, 'fs83', 463)" class="i">System</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs84', 464)" onmouseover="showTip(event, 'fs84', 464)" class="i">IO</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs85', 465)" onmouseover="showTip(event, 'fs85', 465)" class="t">File</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs129', 466)" onmouseover="showTip(event, 'fs129', 466)" class="f">ReadAllText</span>(<span onmouseout="hideTip(event, 'fs123', 467)" onmouseover="showTip(event, 'fs123', 467)" class="i">f</span>)
+
+    
+</code></pre></td>
+</tr>
+</table>
+
+          <div class="tip" id="fs1">namespace ResumableMonad</div>
+<div class="tip" id="fs2">module MultipstepPersisted<br /><br />from ResumableMonad<br /><em><br /><br />&#160;Persisted implementation of the multistep resumable monad.</em></div>
+<div class="tip" id="fs3">type Persist&lt;&#39;h&gt; = &#39;h -&gt; unit<br /><br />Full name: ResumableMonad.MultipstepPersisted.Persist&lt;_&gt;<br /><em><br /><br />&#160;Defines a method to persist a trace history (i.e. caching points) to some external device</em></div>
+<div class="tip" id="fs4">type unit = Unit<br /><br />Full name: Microsoft.FSharp.Core.unit</div>
+<div class="tip" id="fs5">type CacheStorage&lt;&#39;h&gt; =<br />&#160;&#160;{save: Persist&lt;&#39;h&gt;;<br />&#160;&#160;&#160;load: unit -&gt; &#39;h option;}<br /><br />Full name: ResumableMonad.MultipstepPersisted.CacheStorage&lt;_&gt;<br /><em><br /><br />&#160;Defines the functions to load/save the caching points to some external storage</em></div>
+<div class="tip" id="fs6">CacheStorage.save: Persist&lt;&#39;h&gt;</div>
+<div class="tip" id="fs7">CacheStorage.load: unit -&gt; &#39;h option</div>
+<div class="tip" id="fs8">type &#39;T option = Option&lt;&#39;T&gt;<br /><br />Full name: Microsoft.FSharp.Core.option&lt;_&gt;</div>
+<div class="tip" id="fs9">Multiple items<br />union case Resumable.Resumable: (Persist&lt;&#39;h&gt; -&gt; &#39;h -&gt; &#39;t) -&gt; Resumable&lt;&#39;h,&#39;t&gt;<br /><br />--------------------<br />type Resumable&lt;&#39;t&gt; =<br />&#160;&#160;| Startable of (unit -&gt; &#39;t)<br />&#160;&#160;member resume : unit -&gt; &#39;t<br /><br />Full name: ResumableMonad.MultipstepPersisted.Resumable&lt;_&gt;<br /><em><br /><br />&#160;A resumable computation of type `&#39;t` with no caching point.<br />&#160;This extra type is used as a trick to match<br />&#160;on type `&#39;h` at compile-type using .net member overloading<br />&#160;(since unfortunatley the static constraint `not (&#39;h :&gt; unit)` cannot be expressed in F#).<br />&#160;It&#39;s not theoretically needed but it helps simplify<br />&#160;the type encoding `&#39;h` of caching points by eliminating<br />&#160;redundant occurrences of `option unit` within<br />&#160;larger resumable expressions.</em><br /><br />--------------------<br />type Resumable&lt;&#39;h,&#39;t&gt; =<br />&#160;&#160;| Resumable of (Persist&lt;&#39;h&gt; -&gt; &#39;h -&gt; &#39;t)<br />&#160;&#160;member evaluate : storage:CacheStorage&lt;&#39;h&gt; -&gt; &#39;t<br />&#160;&#160;member initial : &#39;h<br />&#160;&#160;member resume : persist:Persist&lt;&#39;h&gt; -&gt; h:&#39;h -&gt; &#39;t<br /><br />Full name: ResumableMonad.MultipstepPersisted.Resumable&lt;_,_&gt;<br /><em><br /><br />&#160;A resumable computation of type `&#39;t` with caching points history of type `&#39;h`.<br />&#160;- `&#39;t` is the returned type of the computation<br />&#160;- type `&#39;h` is inferred from the monadic expression and encodes the history of caching points in the<br />&#160;&#160;resumable expression. The hierachy of caching points is encoded with nested tuples, the leaf elements in the<br />&#160;&#160;hiearachy are of type `&#39;a option` and represent the caching points themselves.</em></div>
+<div class="tip" id="fs10">val R : Resumable&lt;&#39;h,&#39;t&gt;</div>
+<div class="tip" id="fs11">member Resumable.resume : persist:Persist&lt;&#39;h&gt; -&gt; h:&#39;h -&gt; &#39;t<br /><br />Full name: ResumableMonad.MultipstepPersisted.Resumable`2.resume<br /><em><br /><br />&#160;Resume from a specified history of caching points</em></div>
+<div class="tip" id="fs12">val persist : Persist&lt;&#39;h&gt;</div>
+<div class="tip" id="fs13">val h : &#39;h</div>
+<div class="tip" id="fs14">val r : (Persist&lt;&#39;h&gt; -&gt; &#39;h -&gt; &#39;t)</div>
+<div class="tip" id="fs15">member Resumable.initial : &#39;h<br /><br />Full name: ResumableMonad.MultipstepPersisted.Resumable`2.initial<br /><em><br /><br />&#160;Returns the empty history (i.e. no caching point)</em></div>
+<div class="tip" id="fs16">member Resumable.evaluate : storage:CacheStorage&lt;&#39;h&gt; -&gt; &#39;t<br /><br />Full name: ResumableMonad.MultipstepPersisted.Resumable`2.evaluate<br /><em><br /><br />&#160;Evaluate the resumable expression starting<br />&#160;from the saved history of cached points if it exists,<br />&#160;or from the empty history otherwise</em></div>
+<div class="tip" id="fs17">val storage : CacheStorage&lt;&#39;h&gt;</div>
+<div class="tip" id="fs18">val resume : (Persist&lt;&#39;h&gt; -&gt; &#39;h -&gt; &#39;t)</div>
+<div class="tip" id="fs19">val printfn : format:Printf.TextWriterFormat&lt;&#39;T&gt; -&gt; &#39;T<br /><br />Full name: Microsoft.FSharp.Core.ExtraTopLevelOperators.printfn</div>
+<div class="tip" id="fs20">val typeof&lt;&#39;T&gt; : System.Type<br /><br />Full name: Microsoft.FSharp.Core.Operators.typeof</div>
+<div class="tip" id="fs21">val state : &#39;h</div>
+<div class="tip" id="fs22">union case Option.None: Option&lt;&#39;T&gt;</div>
+<div class="tip" id="fs23">property Resumable.initial: &#39;h<br /><em><br /><br />&#160;Returns the empty history (i.e. no caching point)</em></div>
+<div class="tip" id="fs24">union case Option.Some: Value: &#39;T -&gt; Option&lt;&#39;T&gt;</div>
+<div class="tip" id="fs25">union case Resumable.Startable: (unit -&gt; &#39;t) -&gt; Resumable&lt;&#39;t&gt;</div>
+<div class="tip" id="fs26">val R : Resumable&lt;&#39;t&gt;</div>
+<div class="tip" id="fs27">member Resumable.resume : unit -&gt; &#39;t<br /><br />Full name: ResumableMonad.MultipstepPersisted.Resumable`1.resume</div>
+<div class="tip" id="fs28">val r : (unit -&gt; &#39;t)</div>
+<div class="tip" id="fs29">val getOrEvaluate : persist:Persist&lt;&#39;a&gt; -&gt; evaluate:(unit -&gt; &#39;a) -&gt; _arg1:&#39;a option -&gt; &#39;a<br /><br />Full name: ResumableMonad.MultipstepPersisted.getOrEvaluate<br /><em><br /><br />&#160;Return the provided value if specified otherwise evaluate the provided function<br />&#160;and persist the result to the external storage device</em></div>
+<div class="tip" id="fs30">val persist : Persist&lt;&#39;a&gt;</div>
+<div class="tip" id="fs31">val evaluate : (unit -&gt; &#39;a)</div>
+<div class="tip" id="fs32">val cached : &#39;a</div>
+<div class="tip" id="fs33">val r : &#39;a</div>
+<div class="tip" id="fs34">val cons : (&#39;a -&gt; &#39;h)</div>
+<div class="tip" id="fs35">Multiple items<br />type ResumableBuilder =<br />&#160;&#160;new : unit -&gt; ResumableBuilder<br />&#160;&#160;member Bind : f:Resumable&lt;&#39;u,&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;) -&gt; Resumable&lt;(&#39;a option * &#39;u * &#39;v),&#39;b&gt;<br />&#160;&#160;member Bind : f:Resumable&lt;&#39;u,&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;(&#39;a option * &#39;u),&#39;b&gt;<br />&#160;&#160;member Bind : f:Resumable&lt;&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;) -&gt; Resumable&lt;(&#39;a option * &#39;v),&#39;b&gt;<br />&#160;&#160;member Bind : f:Resumable&lt;&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;a option,&#39;b&gt;<br />&#160;&#160;member BindNoCache : f:Resumable&lt;&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;b&gt;<br />&#160;&#160;member Combine : p1:Resumable&lt;&#39;u,unit&gt; * p2:Resumable&lt;&#39;v,&#39;b&gt; -&gt; Resumable&lt;(&#39;u * &#39;v),&#39;b&gt;<br />&#160;&#160;member Combine : p1:Resumable&lt;unit&gt; * p2:Resumable&lt;&#39;b&gt; -&gt; Resumable&lt;&#39;b&gt;<br />&#160;&#160;member Delay : f:(unit -&gt; Resumable&lt;&#39;h,&#39;t&gt;) -&gt; Resumable&lt;&#39;h,&#39;t&gt;<br />&#160;&#160;member Delay : f:(unit -&gt; Resumable&lt;&#39;t&gt;) -&gt; Resumable&lt;&#39;t&gt;<br />&#160;&#160;...<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder<br /><em><br /><br />&#160;The syntax builder for the Resumable monadic syntax</em><br /><br />--------------------<br />new : unit -&gt; ResumableBuilder</div>
+<div class="tip" id="fs36">member ResumableBuilder.Zero : unit -&gt; Resumable&lt;unit&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Zero</div>
+<div class="tip" id="fs37">val __ : ResumableBuilder</div>
+<div class="tip" id="fs38">member ResumableBuilder.Return : x:&#39;t -&gt; Resumable&lt;&#39;t&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Return</div>
+<div class="tip" id="fs39">val x : &#39;t</div>
+<div class="tip" id="fs40">member ResumableBuilder.Delay : f:(unit -&gt; Resumable&lt;&#39;h,&#39;t&gt;) -&gt; Resumable&lt;&#39;h,&#39;t&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Delay</div>
+<div class="tip" id="fs41">val f : (unit -&gt; Resumable&lt;&#39;h,&#39;t&gt;)</div>
+<div class="tip" id="fs42">val p : Persist&lt;&#39;h&gt;</div>
+<div class="tip" id="fs43">member ResumableBuilder.Delay : f:(unit -&gt; Resumable&lt;&#39;t&gt;) -&gt; Resumable&lt;&#39;t&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Delay</div>
+<div class="tip" id="fs44">val f : (unit -&gt; Resumable&lt;&#39;t&gt;)</div>
+<div class="tip" id="fs45">member ResumableBuilder.Bind : f:Resumable&lt;&#39;u,&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;) -&gt; Resumable&lt;(&#39;a option * &#39;u * &#39;v),&#39;b&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Bind</div>
+<div class="tip" id="fs46">val f : Resumable&lt;&#39;u,&#39;a&gt;</div>
+<div class="tip" id="fs47">val g : (&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;)</div>
+<div class="tip" id="fs48">val p : Persist&lt;&#39;a option * &#39;u * &#39;v&gt;</div>
+<div class="tip" id="fs49">val cached : &#39;a option</div>
+<div class="tip" id="fs50">val u : &#39;u</div>
+<div class="tip" id="fs51">val v : &#39;v</div>
+<div class="tip" id="fs52">val persista : Persist&lt;&#39;a&gt;</div>
+<div class="tip" id="fs53">val a : &#39;a</div>
+<div class="tip" id="fs54">val persistu : Persist&lt;&#39;u&gt;</div>
+<div class="tip" id="fs55">member Resumable.resume : persist:Persist&lt;&#39;h&gt; -&gt; h:&#39;h -&gt; &#39;t<br /><em><br /><br />&#160;Resume from a specified history of caching points</em></div>
+<div class="tip" id="fs56">member ResumableBuilder.Bind : f:Resumable&lt;&#39;u,&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;(&#39;a option * &#39;u),&#39;b&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Bind</div>
+<div class="tip" id="fs57">val g : (&#39;a -&gt; Resumable&lt;&#39;b&gt;)</div>
+<div class="tip" id="fs58">val p : Persist&lt;&#39;a option * &#39;u&gt;</div>
+<div class="tip" id="fs59">member ResumableBuilder.Bind : f:Resumable&lt;&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;v,&#39;b&gt;) -&gt; Resumable&lt;(&#39;a option * &#39;v),&#39;b&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Bind</div>
+<div class="tip" id="fs60">val f : Resumable&lt;&#39;a&gt;</div>
+<div class="tip" id="fs61">val p : Persist&lt;&#39;a option * &#39;v&gt;</div>
+<div class="tip" id="fs62">member Resumable.resume : unit -&gt; &#39;t</div>
+<div class="tip" id="fs63">member ResumableBuilder.Bind : f:Resumable&lt;&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;a option,&#39;b&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Bind</div>
+<div class="tip" id="fs64">val p : Persist&lt;&#39;a option&gt;</div>
+<div class="tip" id="fs65">member ResumableBuilder.BindNoCache : f:Resumable&lt;&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;b&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.BindNoCache</div>
+<div class="tip" id="fs66">member ResumableBuilder.Combine : p1:Resumable&lt;&#39;u,unit&gt; * p2:Resumable&lt;&#39;v,&#39;b&gt; -&gt; Resumable&lt;(&#39;u * &#39;v),&#39;b&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Combine</div>
+<div class="tip" id="fs67">val p1 : Resumable&lt;&#39;u,unit&gt;</div>
+<div class="tip" id="fs68">val p2 : Resumable&lt;&#39;v,&#39;b&gt;</div>
+<div class="tip" id="fs69">val p : Persist&lt;&#39;u * &#39;v&gt;</div>
+<div class="tip" id="fs70">member ResumableBuilder.Combine : p1:Resumable&lt;unit&gt; * p2:Resumable&lt;&#39;b&gt; -&gt; Resumable&lt;&#39;b&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.Combine</div>
+<div class="tip" id="fs71">val p1 : Resumable&lt;unit&gt;</div>
+<div class="tip" id="fs72">val p2 : Resumable&lt;&#39;b&gt;</div>
+<div class="tip" id="fs73">member ResumableBuilder.While : condition:(unit -&gt; bool) * body:Resumable&lt;unit&gt; -&gt; Resumable&lt;unit&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.ResumableBuilder.While</div>
+<div class="tip" id="fs74">val condition : (unit -&gt; bool)</div>
+<div class="tip" id="fs75">val body : Resumable&lt;unit&gt;</div>
+<div class="tip" id="fs76">member ResumableBuilder.BindNoCache : f:Resumable&lt;&#39;a&gt; * g:(&#39;a -&gt; Resumable&lt;&#39;b&gt;) -&gt; Resumable&lt;&#39;b&gt;</div>
+<div class="tip" id="fs77">member ResumableBuilder.While : condition:(unit -&gt; bool) * body:Resumable&lt;unit&gt; -&gt; Resumable&lt;unit&gt;</div>
+<div class="tip" id="fs78">member ResumableBuilder.Zero : unit -&gt; Resumable&lt;unit&gt;</div>
+<div class="tip" id="fs79">val resumable : ResumableBuilder<br /><br />Full name: ResumableMonad.MultipstepPersisted.resumable</div>
+<div class="tip" id="fs80">val NewtonsoftStorage&lt;&#39;T&gt; : fileName:string -&gt; CacheStorage&lt;obj&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.NewtonsoftStorage<br /><em><br /><br />&#160;File storage based on Newtonsoft serialization</em></div>
+<div class="tip" id="fs81">val fileName : string</div>
+<div class="tip" id="fs82">val history : obj</div>
+<div class="tip" id="fs83">namespace System</div>
+<div class="tip" id="fs84">namespace System.IO</div>
+<div class="tip" id="fs85">type File =<br />&#160;&#160;static member AppendAllLines : path:string * contents:IEnumerable&lt;string&gt; -&gt; unit + 1 overload<br />&#160;&#160;static member AppendAllText : path:string * contents:string -&gt; unit + 1 overload<br />&#160;&#160;static member AppendText : path:string -&gt; StreamWriter<br />&#160;&#160;static member Copy : sourceFileName:string * destFileName:string -&gt; unit + 1 overload<br />&#160;&#160;static member Create : path:string -&gt; FileStream + 3 overloads<br />&#160;&#160;static member CreateText : path:string -&gt; StreamWriter<br />&#160;&#160;static member Decrypt : path:string -&gt; unit<br />&#160;&#160;static member Delete : path:string -&gt; unit<br />&#160;&#160;static member Encrypt : path:string -&gt; unit<br />&#160;&#160;static member Exists : path:string -&gt; bool<br />&#160;&#160;...<br /><br />Full name: System.IO.File</div>
+<div class="tip" id="fs86">System.IO.File.WriteAllText(path: string, contents: string) : unit<br />System.IO.File.WriteAllText(path: string, contents: string, encoding: System.Text.Encoding) : unit</div>
+<div class="tip" id="fs87">System.IO.File.Exists(path: string) : bool</div>
+<div class="tip" id="fs88">System.IO.File.ReadAllText(path: string) : string<br />System.IO.File.ReadAllText(path: string, encoding: System.Text.Encoding) : string</div>
+<div class="tip" id="fs89">val LuStorage&lt;&#39;T&gt; : fileName:string -&gt; CacheStorage&lt;int option * (int option * int option)&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.LuStorage<br /><em><br /><br />&#160;File storage based on FSharpLu.Json</em></div>
+<div class="tip" id="fs90">namespace Microsoft</div>
+<div class="tip" id="fs91">val cache : Choice&lt;(int option * (int option * int option)),obj&gt;</div>
+<div class="tip" id="fs92">union case Choice.Choice1Of2: &#39;T1 -&gt; Choice&lt;&#39;T1,&#39;T2&gt;</div>
+<div class="tip" id="fs93">val cache : int option * (int option * int option)</div>
+<div class="tip" id="fs94">union case Choice.Choice2Of2: &#39;T2 -&gt; Choice&lt;&#39;T1,&#39;T2&gt;</div>
+<div class="tip" id="fs95">module Example<br /><br />from ResumableMonad.MultipstepPersisted</div>
+<div class="tip" id="fs96">val isPrime : _arg1:int -&gt; bool<br /><br />Full name: ResumableMonad.MultipstepPersisted.Example.isPrime</div>
+<div class="tip" id="fs97">val n : int</div>
+<div class="tip" id="fs98">Multiple items<br />val int : value:&#39;T -&gt; int (requires member op_Explicit)<br /><br />Full name: Microsoft.FSharp.Core.Operators.int<br /><br />--------------------<br />type int = int32<br /><br />Full name: Microsoft.FSharp.Core.int<br /><br />--------------------<br />type int&lt;&#39;Measure&gt; = int<br /><br />Full name: Microsoft.FSharp.Core.int&lt;_&gt;</div>
+<div class="tip" id="fs99">type Math =<br />&#160;&#160;static val PI : float<br />&#160;&#160;static val E : float<br />&#160;&#160;static member Abs : value:sbyte -&gt; sbyte + 6 overloads<br />&#160;&#160;static member Acos : d:float -&gt; float<br />&#160;&#160;static member Asin : d:float -&gt; float<br />&#160;&#160;static member Atan : d:float -&gt; float<br />&#160;&#160;static member Atan2 : y:float * x:float -&gt; float<br />&#160;&#160;static member BigMul : a:int * b:int -&gt; int64<br />&#160;&#160;static member Ceiling : d:decimal -&gt; decimal + 1 overload<br />&#160;&#160;static member Cos : d:float -&gt; float<br />&#160;&#160;...<br /><br />Full name: System.Math</div>
+<div class="tip" id="fs100">Math.Ceiling(a: float) : float<br />Math.Ceiling(d: decimal) : decimal</div>
+<div class="tip" id="fs101">Math.Sqrt(d: float) : float</div>
+<div class="tip" id="fs102">Multiple items<br />val float : value:&#39;T -&gt; float (requires member op_Explicit)<br /><br />Full name: Microsoft.FSharp.Core.Operators.float<br /><br />--------------------<br />type float = Double<br /><br />Full name: Microsoft.FSharp.Core.float<br /><br />--------------------<br />type float&lt;&#39;Measure&gt; = float<br /><br />Full name: Microsoft.FSharp.Core.float&lt;_&gt;</div>
+<div class="tip" id="fs103">module Seq<br /><br />from Microsoft.FSharp.Collections</div>
+<div class="tip" id="fs104">val forall : predicate:(&#39;T -&gt; bool) -&gt; source:seq&lt;&#39;T&gt; -&gt; bool<br /><br />Full name: Microsoft.FSharp.Collections.Seq.forall</div>
+<div class="tip" id="fs105">val d : int</div>
+<div class="tip" id="fs106">val nthprime : n:int -&gt; int<br /><br />Full name: ResumableMonad.MultipstepPersisted.Example.nthprime</div>
+<div class="tip" id="fs107">val p : int</div>
+<div class="tip" id="fs108">val initInfinite : initializer:(int -&gt; &#39;T) -&gt; seq&lt;&#39;T&gt;<br /><br />Full name: Microsoft.FSharp.Collections.Seq.initInfinite</div>
+<div class="tip" id="fs109">val id : x:&#39;T -&gt; &#39;T<br /><br />Full name: Microsoft.FSharp.Core.Operators.id</div>
+<div class="tip" id="fs110">val where : predicate:(&#39;T -&gt; bool) -&gt; source:seq&lt;&#39;T&gt; -&gt; seq&lt;&#39;T&gt;<br /><br />Full name: Microsoft.FSharp.Collections.Seq.where</div>
+<div class="tip" id="fs111">val item : index:int -&gt; source:seq&lt;&#39;T&gt; -&gt; &#39;T<br /><br />Full name: Microsoft.FSharp.Collections.Seq.item</div>
+<div class="tip" id="fs112">val addPrimes : n1:int -&gt; n2:int -&gt; n3:int -&gt; Resumable&lt;(int option * (int option * int option)),int&gt;<br /><br />Full name: ResumableMonad.MultipstepPersisted.Example.addPrimes</div>
+<div class="tip" id="fs113">val n1 : int</div>
+<div class="tip" id="fs114">val n2 : int</div>
+<div class="tip" id="fs115">val n3 : int</div>
+<div class="tip" id="fs116">val p1 : int</div>
+<div class="tip" id="fs117">type Console =<br />&#160;&#160;static member BackgroundColor : ConsoleColor with get, set<br />&#160;&#160;static member Beep : unit -&gt; unit + 1 overload<br />&#160;&#160;static member BufferHeight : int with get, set<br />&#160;&#160;static member BufferWidth : int with get, set<br />&#160;&#160;static member CapsLock : bool<br />&#160;&#160;static member Clear : unit -&gt; unit<br />&#160;&#160;static member CursorLeft : int with get, set<br />&#160;&#160;static member CursorSize : int with get, set<br />&#160;&#160;static member CursorTop : int with get, set<br />&#160;&#160;static member CursorVisible : bool with get, set<br />&#160;&#160;...<br /><br />Full name: System.Console</div>
+<div class="tip" id="fs118">Console.Read() : int</div>
+<div class="tip" id="fs119">val ignore : value:&#39;T -&gt; unit<br /><br />Full name: Microsoft.FSharp.Core.Operators.ignore</div>
+<div class="tip" id="fs120">val p2 : int</div>
+<div class="tip" id="fs121">val p3 : int</div>
+<div class="tip" id="fs122">val sum : int</div>
+<div class="tip" id="fs123">val f : string<br /><br />Full name: ResumableMonad.MultipstepPersisted.Example.f</div>
+<div class="tip" id="fs124">type Path =<br />&#160;&#160;static val DirectorySeparatorChar : char<br />&#160;&#160;static val AltDirectorySeparatorChar : char<br />&#160;&#160;static val VolumeSeparatorChar : char<br />&#160;&#160;static val InvalidPathChars : char[]<br />&#160;&#160;static val PathSeparator : char<br />&#160;&#160;static member ChangeExtension : path:string * extension:string -&gt; string<br />&#160;&#160;static member Combine : [&lt;ParamArray&gt;] paths:string[] -&gt; string + 3 overloads<br />&#160;&#160;static member GetDirectoryName : path:string -&gt; string<br />&#160;&#160;static member GetExtension : path:string -&gt; string<br />&#160;&#160;static member GetFileName : path:string -&gt; string<br />&#160;&#160;...<br /><br />Full name: System.IO.Path</div>
+<div class="tip" id="fs125">IO.Path.GetTempFileName() : string</div>
+<div class="tip" id="fs126">IO.File.Delete(path: string) : unit</div>
+<div class="tip" id="fs127">val result : int<br /><br />Full name: ResumableMonad.MultipstepPersisted.Example.result</div>
+<div class="tip" id="fs128">val printf : format:Printf.TextWriterFormat&lt;&#39;T&gt; -&gt; &#39;T<br /><br />Full name: Microsoft.FSharp.Core.ExtraTopLevelOperators.printf</div>
+<div class="tip" id="fs129">IO.File.ReadAllText(path: string) : string<br />IO.File.ReadAllText(path: string, encoding: Text.Encoding) : string</div>
+
+        </div>
+        <div class="span3">
+
+          <ul class="nav nav-list" id="menu">
+            <li class="nav-header">Resumable Monad</li>
+            <li><a href="TheResumableMonad.html">The Resumable Monad</a></li>
+            <li><a href="examples.html">Examples</a></li>
+            <li><a href="ResumableMonad.Multistep.html">ResumableMonad.Multistep</a></li>
+            <li><a href="ResumableMonad.Multistep.Persisted.html">ResumableMonad.Multistep.Persisted</a></li>
+
+            <!--
+
+              Here you can add links to other pages of the documentation
+              The 'divider' element creates a separator and additional
+              'nav-header' can be used to add sub-headings in the menu:
+
+              * <li class="divider"></li>
+              * <li><a href="...">...</a></li>
+              * <li class="nav-header">Sub-heading</li>
+
+            -->
+          </ul>
+        </div>
+      </div>
+    </div>
+    <a href="https://github.com/blumu/ResumableMonad/"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_orange_ff7600.png" alt="Fork me on GitHub"></a>
+  </body>
+</html>

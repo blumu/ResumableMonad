@@ -1,7 +1,18 @@
-﻿module Example
+﻿(**
+Resumable monad examples
+========================
+*)
 
-#load "Zero.fs"
-#load "ResumableMonad.Multistep.fs"
+module Example
+
+(*** hide ***)
+#load "..\Zero.fs"
+#load "..\ResumableMonad.Multistep.fs"
+
+(**
+## Simple resumable calculations
+*)
+
 open Zero
 open ResumableMonad.Multipstep
 
@@ -32,7 +43,11 @@ example2.resume <| (Some 3, (None,None), Some 4)
 
 example.resume <| Zero.getZeroTyped<_>
 
-(*** hide ***)
+
+(**
+## While loop
+*)
+
 module WhileTest =
     let x = ref 0
     let m =
@@ -47,6 +62,9 @@ module WhileTest =
 
     let s1 = m.resume (Zero.getZeroTyped<_>)
 
+(**
+## Another while loop
+*)
 
 module WhileTest2 =
     let m2 =
@@ -77,6 +95,10 @@ module IfTest =
 
     let s1 = iftest.resume (Zero.getZeroTyped<_>)
 
+
+(**
+## Resumable service request handler
+*)
 
 module MyResumableService =
     module Environment =

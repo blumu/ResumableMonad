@@ -56,14 +56,15 @@
   <ItemGroup>
     <None Include="App.config" />
     <Content Include="packages.config" />
-    <None Include="ResumableMonadDoc.fsx" />
     <None Include="builddoc.fsx" />
     <Compile Include="Zero.fs" />
-    <Compile Include="ResumableMonad.Multistep.Serialized.fs" />
-    <None Include="Example.fsx" />
     <Compile Include="ResumableMonad.Multistep.fs" />
+    <Compile Include="ResumableMonad.Multistep.Persisted.fs" />
     <None Include="Scripts\load-references-debug.fsx" />
     <None Include="Scripts\load-project-debug.fsx" />
+    <None Include="Articles\TheResumableMonad.fsx" />
+    <None Include="Articles\Examples.fsx" />
+    <None Include="Templates\template-project.html" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
@@ -74,7 +75,7 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
   </ItemGroup>
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it.
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
   </Target>
