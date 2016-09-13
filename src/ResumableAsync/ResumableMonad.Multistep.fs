@@ -1,24 +1,32 @@
-﻿/// This module implements the 'multistep' implementation of the resumable monad
-/// where the resumable expression is encoded as a mapping from the trace
-/// history type 'h to the expression's return type 't.
-///
-/// This contrasts with the implementation from the original article
-/// (ResumableMonadDoc.fsx) where the encoding type `'h -> 'h * Option<'t>`
-/// represents a state transition function mapping the existing
-/// trace history to the updated history after taking a single step in the computation.
-/// (i.e. advancing the computation to the next caching point).
-///
-/// The original encoding generates larger types but provides a clean separation
-/// between the definition of the resumable expression monad and the mechanism used
-/// for evaluation and for caching/persistence of the trace history.
-///
-/// The 'mulistep' encoding, defined in the present module, generates smaller types but
-/// requires stronger coupling between the definition of the monadic constructs
-/// and the execution and caching/persistence engine.
+﻿(**
+Multistep implementation of the Resumable monad
+===============================================
+
+This module implements the _multistep_ implementation of the resumable monad
+where the resumable expression is encoded as a mapping from the trace
+history type 'h to the expression's return type 't.
+
+This contrasts with the implementation from [the original article](TheResumableMonad.fsx) 
+where the encoding type `'h -> 'h * Option<'t>`
+represents a single state transition. That is a function mapping the existing
+trace history to the updated history after taking a single step in the computation.
+(i.e. advancing the computation to the next caching point).
+
+The original encoding generates larger types but provides a clean separation
+between the definition of the resumable expression monad and the mechanism used
+for evaluation and for caching/persistence of the trace history.
+
+The 'mulistep' encoding, defined in the present module, generates smaller types but
+requires stronger coupling between the definition of the monadic constructs
+and the execution and caching/persistence engine.
+
+*)
+
+/// Multistep resumable monad where a resumable expression is encoded as a 
+/// mapping from the trace history type 'h to the expression's return type 't.
 module ResumableMonad.Multipstep
 
-/// Represents a resumable computation returning
-/// a result of type `'t` with a sequence of
+/// A resumable computation returning a result of type `'t` with a sequence of
 /// caching points encoded by type `'h`.
 /// - 'h is a type generated from the monadic expression to encode the history of caching points in the
 ///  resumable expression. It consists of nested tuples with base elements of type 'a option for each
@@ -34,15 +42,18 @@ with
     member inline R.initial =
         Zero.getZeroTyped<'h>
 
+(**
+The next type we define is not theoretically required to implement the resumable monad,
+we introduce it solely to simplify the type encoding of caching points for large resumable expression.
+It allows us to eliminate unneeded occurrences of `option unit` 
+in the type encoding `'h` of large resumable expressions.
+
+The adverse effect is that we need to define multiple version of the bind monadic operators
+for each possible combination of the two `Resumable` type variations: `Resumable<'h, 't>` and `Resumable<'t>`
+(If the static constraint `not ('h :> unit)` could be expressed in F# this would not be needed).
+*)
+
 /// A resumable computation of type `'t` with no caching point.
-/// This extra type is used as a trick to match
-/// on type `'h` at compile-type using .net member overloading
-/// (Unfortunatley the static constraint `not ('h :> unit)` cannot be expressed in F#).
-//
-/// It's not theoretically needed but it helps simplify
-/// the type encoding `'h` of caching points by eliminating
-/// unneeded occurrences of type `option unit` when occurring as part
-/// of larger resumable expressions.
 and Resumable<'t> = Spawnable of (unit -> 't)
 with
     member inline R.resume =
@@ -110,3 +121,18 @@ We can now declare the computational expression `resumable { ... }` definining
 all the syntactic sugar for the monadic operators defined in `ResumableBuilder`.
 *)
 let resumable = new ResumableBuilder()
+
+
+(**
+## Examples
+For usage examples of the resumable monad see the [Examples page](examples.html)
+
+## Acknowledgement
+
+I shared my original article on the resumable monad with Tomas Petricek who
+gave intersting feedback and in particular clarified the connection with the reader monad in an 
+[F# snippet](http://fssnip.net/tu).
+The enconding used in the mulitsep resumable monad is the same as the one used in Tomas's snippet 
+however the caching here is performed within the definition of the bind operator as opposed to an external function. 
+
+*)

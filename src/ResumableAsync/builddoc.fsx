@@ -1,13 +1,17 @@
 ﻿#load @"../../packages/FSharp.Formatting/FSharp.Formatting.fsx"
 open FSharp.Literate
-open System.IO
 
-let source = __SOURCE_DIRECTORY__
-let template = Path.Combine(source, @"..\..\packages\FSharp.Formatting\literate\templates\template-project.html")
+let (++) s1 s2 = System.IO.Path.Combine(s1, s2)
 
+let articleSource = __SOURCE_DIRECTORY__ ++ @"Articles\"
+let template = __SOURCE_DIRECTORY__ ++ @"templates\template-project.html"
+let output = __SOURCE_DIRECTORY__ ++ @"..\..\"
 
-//let script = Path.Combine(source, "MonadicReplayPairHistory.fs")
-//Literate.ProcessScriptFile(script, template)
+let articles =
+    [
+        "ResumableMonad.Multistep.Persisted.fs"
+        "ResumableMonad.Multistep.fs"
+    ]
 
 //let doc = Path.Combine(source, "../docs/document.md")
 //Literate.ProcessMarkdown(doc, template)
@@ -21,11 +25,20 @@ let doc() =
         "project-name", "Resumable Monad"
         "github-link", "https://github.com/blumu/ResumableMonad/" ]
 
-    // Process all files and save results to 'output' directory
+    articles
+    |> Seq.iter(
+        fun a ->
+            let source = __SOURCE_DIRECTORY__ ++ a
+            let output = output ++ System.IO.Path.GetFileName(System.IO.Path.ChangeExtension(source, ".html"))
+            printfn "Processing %s to %s" source output
+            Literate.ProcessScriptFile(source, template, output, replacements = projInfo)
+        )
+    
+    /// Process everything under the Article directory
     Literate.ProcessDirectory
-      (source, projTemplate, source + "\\..\\output", replacements = projInfo)
+      (articleSource, projTemplate, output, replacements = projInfo, processRecursive = false)
 
-    System.IO.File.Copy(source + @"\..\output\ResumableMonadDoc.html", source + @"\..\..\index.html", true)
+    System.IO.File.Copy(output ++ "TheResumableMonad.html", output ++ @"index.html", true)
 
 doc()
 
